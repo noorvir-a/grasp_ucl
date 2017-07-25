@@ -1,0 +1,60 @@
+# directories and filenames
+database_dir: /home/noorvir/datasets/dexnet/grasp_databases/dexnet_2.0_training_database/
+database_filename: dexnet_2_database.hdf5
+dataset_cache_dir: /home/noorvir/catkin_ws/src/dex-net/.dexnet/cache/
+
+gripper_name: yumi_metal_spline
+grippers_dir: /home/noorvir/catkin_ws/src/dex-net/data/grippers/
+table_mesh_filename: /home/noorvir/catkin_ws/src/dex-net/data/meshes/table.obj
+
+grasp_metric: robust_ferrari_canny
+
+# data generation config
+cache_datapoints_limit: 10000      # number of data points to store per pickle file in the cache
+resume_grasp_generation: 1
+resume_image_rendering: 0
+
+# collision metrics
+table_offset: 0.005
+max_approach_angle_z: 5
+max_approach_angle_y: 10
+approach_dist: 0.1
+delta_approach: 0.005
+num_approach_samples: 4
+num_image_samples: 20
+
+# camera config
+camera_params:
+    # Camera intrinsics
+    min_f: 520
+    max_f: 530
+    min_cx: 299.5
+    max_cx: 299.5
+    min_cy: 299.5
+    max_cy: 299.5
+    im_width: 600
+    im_height: 600
+
+    # Camera pose
+    min_radius: 0.65
+    max_radius: 0.75
+    min_elev: 0.1
+    max_elev: 5.0 # in degrees
+    min_az: 0.0
+    max_az: 360.0 # degrees
+    min_roll: -0.2
+    max_roll: 0.2 # degrees
+
+    # Object pose
+    min_x: -0.1
+    max_x: 0.1
+    min_y: -0.1
+    max_y: 0.1
+
+# rendered images config
+output_image_params:
+    resize: 1
+    output_img_height: 32
+    output_img_width: 32
+    output_img_crop_width: 300
+    output_img_crop_height: 300

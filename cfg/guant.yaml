@@ -1,0 +1,24 @@
+# Directories
+dataset_dir: /home/noorvir/datasets/
+dataset_config_dir: /home/noorvir/catkin_ws/src/grasp_ucl/config/
+checkpoint_dir: /home/noorvir/tf_models/GUAN-t/checkpoints/
+model_path: /home/noorvir/tf_models/GUAN-t/pre_trained/         # path to trained GUAN-t model
+
+pt_weights_filename: /home/noorvir/tf_models/AlexNet
+
+# Training parameters
+img_width: 227
+img_height: 227
+img_width: 3
+num_classes: 6
+batch_size: 50
+optimiser: adam
+
+# GUAN-t architecture
+architecture:
+  retrain_layers:           # layers of AlexNet to retrain
+    - fc6
+    - fc7
+    - fc8
+  skipped_layers:           # layers of AlexNet to discard
+    -

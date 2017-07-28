@@ -1,0 +1,15 @@
+# GUAN-t network
+guant:
+  filename_templates:
+    depth_imgs: depth_ims_tf_table
+    labels: one_hot_labels
+
+  images_per_file: 1000
+
+
+
+# GUAN network
+guan:
+  filename_templates:
+    depth_imgs: depth_ims_tf_table
+    labels: one_hot_labels

@@ -1,11 +1,14 @@
 from alexnet import AlexNet
-from grasp_ucl.util.pre_process import DataLoader
+from grasp_ucl.utils.pre_process import DataLoader
 from autolab_core import YamlConfig
 from datetime import datetime
 import tensorflow as tf
 import numpy as np
 import logging
 import os
+
+# Display logging info
+logging.getLogger().setLevel(logging.INFO)
 
 
 class GUANt(object):
@@ -16,42 +19,48 @@ class GUANt(object):
         self.name = 'guant'
         self.config = config
         self._setup_config()
-        self.dataset_config = YamlConfig(self.dataset_config_dir)
+
+        # load the dataset config file
+        self.dataset_config = YamlConfig(self.dataset_config)[self.name]
 
         # initialise network
+        self._sess = None
         self.create_network()
+        self._graph = tf.get_default_graph()
 
 
     def _setup_config(self):
         """ Read config file and setup class variables """
 
         self.dataset_dir = self.config['dataset_dir']
-        self.dataset_config_dir = self.config['dataset_config_dir']
+        self.cache_dir = self.config['cache_dir']
+        self.dataset_config = self.config['dataset_config']
         self.summary_dir = self.config['summary_dir']
         self.checkpoint_dir = self.config['checkpoint_dir']
         self.pt_weights_file = self.config['pt_weights_filename']
 
+        # training params
         self.val_frequency = self.config['val_frequency']
         self.log_frequency = self.config['log_frequency']
         self.save_frequency = self.config['save_frequency']
-
-        self.img_width = self.config['img_width']
-        self.img_height = self.config['img_height']
-        self.img_channels = self.config['img_channels']
+        self.batch_size = self.config['batch_size']
         self.queue_capacity = self.config['queue_capacity']
 
         # architecture
+        self.img_width = self.config['architecture']['img_width']
+        self.img_height = self.config['architecture']['img_height']
+        self.img_channels = self.config['architecture']['img_channels']
         self.num_classes = self.config['architecture']['num_classes']
-        self.batch_size = self.config['architecture']['batch_size']
         self.learning_rate = self.config['architecture']['learning_rate']
         self.momentum_rate = self.config['architecture']['momentum_rate']
-        self.retrain_layers = self.config['retrain_layers']
+        self.retrain_layers = self.config['architecture']['retrain_layers']
 
 
     def create_network(self):
         """ Create GUAN-t on top of AlexNet"""
 
         self.input_node = tf.placeholder(tf.float32, [self.batch_size, self.img_width, self.img_height, self.img_channels])
+        self.label_node = tf.placeholder(tf.float32, [self.batch_size, self.num_classes])
         self.keep_prob = tf.placeholder(tf.float32)
 
         # initialise raw AlexNet
@@ -143,11 +152,12 @@ class GUANt(object):
         tf.summary.scalar(self.config['loss'] + '_loss', self.loss)
 
         # gradients
-        gradient_vars = [var for var in tf.trainable_variables() if var.name.split('/')[0] in self.retrain_layers]
-        gradients = tf.gradients(self.loss, gradient_vars)
+        var_list = [var for var in tf.trainable_variables() if var.name.split('/')[0] in self.retrain_layers]
+        gradients = tf.gradients(self.loss, var_list)
+        gradients = list(zip(gradients, var_list))
 
         for gradient, var in gradients:
-            tf.summary.histogram(var.name + '/gradient', gradient)
+            tf.summary.histogram(var.name[:-2] + '/gradient', gradient)
 
         # training accuracy
         tf.summary.scalar('train_accuracy', self.train_accuracy)
@@ -164,10 +174,11 @@ class GUANt(object):
         """ Open TensorFlow Session while accounting for GPU usage if present"""
 
         # TODO: Implement GPU memory handling
-        with tf.Session() as sess:
-            self._sess = sess
+        with self._graph.as_default():
+            self._sess = tf.Session()
             self._sess.run(tf.global_variables_initializer())
-            return self._sess
+
+        return self._sess
 
 
     def _init_tensorflow(self):
@@ -195,12 +206,18 @@ class GUANt(object):
 
 
         # setup accuracy
-        with tf.name_scope('accuracy'):
+        with tf.name_scope('accuracy_op'):
             prediction_outcome = tf.equal(tf.argmax(self.network_output), tf.argmax(self.label_node), name='prediction_outcome')
-            self.accuracy_op = tf.reduce_mean(prediction_outcome, name='accuracy_op')
+            self.accuracy_op = tf.reduce_mean(tf.cast(prediction_outcome, tf.float32), name='accuracy_op')
 
         with tf.name_scope('error_rate'):
-            self.error_rate_op = tf.subtract(1, self.accuracy_op)
+            self.error_rate_op = tf.subtract(1.0, self.accuracy_op)
+
+        with tf.name_scope('train_accuracy'):
+            self.train_accuracy = tf.placeholder(tf.float32)
+
+        with tf.name_scope('val_accuracy'):
+            self.val_accuracy = tf.placeholder(tf.float32)
 
         # setup saver
         self.saver = tf.train.Saver()
@@ -219,80 +236,98 @@ class GUANt(object):
     def optimise(self, weights_init='pre_trained'):
         """ Initialise training routine and optimise"""
 
-        # create loss
-        with tf.name_scope('loss'):
-            self.loss = self._create_loss()
+        try:
+            # create loss
+            with tf.name_scope('loss'):
+                self.loss = self._create_loss()
 
-        # create requlariser to penalise large weights
+            # create requlariser to penalise large weights
 
-        # create optimiser
-        with tf.name_scope('optimiser'):
-            optimiser = self._create_optimiser()
+            # create optimiser
+            with tf.name_scope('optimiser'):
+                optimiser = self._create_optimiser()
 
-        # define accuracy
+            # define accuracy
 
-        # initialise TensorFlow variables
-        self._init_tensorflow()
-        # setup weight decay (optional)
+            # initialise TensorFlow variables
+            self._init_tensorflow()
+            # setup weight decay (optional)
 
-        self._init_summaries()
-        self._launch_tensorboard()
-        # add graph to summary
+            self._init_summaries()
+            self._launch_tensorboard()
+            # add graph to summary
 
-        # number of batches per epoch
-        batches_per_epoch = int(self.num_training_samples/self.batch_size)
+            # number of batches per epoch
+            batches_per_epoch = int(self.num_training_samples/self.batch_size)
 
 
-        # initialise weights
-        if weights_init == 'pre_trained':
-            self._load_pretrained_weights()
-        elif weights_init == 'checkpoint':
-            self._load_weights_from_checkpoint()
-        else:
-            self._init_weights()
+            # initialise weights
+            if weights_init == 'pre_trained':
+                self._load_pretrained_weights()
+            elif weights_init == 'checkpoint':
+                self._load_weights_from_checkpoint()
+            else:
+                self._init_weights()
 
-        # init variables
-        self.sess.run(tf.global_variables_initializer())
+            # init variables
+            self.sess.run(tf.global_variables_initializer())
 
-        # total training steps
-        step = 0
+            # total training steps
+            step = 0
 
-        # iterate over training epochs
-        for epoch in xrange(self.config['num_epochs']):
 
-            # iterate over all batches
-            for batch in xrange(batches_per_epoch):
+            # iterate over training epochs
+            for epoch in xrange(self.config['num_epochs']):
 
-                # load next training batch
-                self.input_node, self.label_node = self.loader.get_next_batch()
+                # iterate over all batches
+                for batch in xrange(batches_per_epoch):
 
-                # train
-                _, loss, self.train_accuracy = self.sess.run([optimiser, self.loss, self.accuracy_op], feed_dict={self.input_node,
-                                                                                                                  self.label_node})
+                    # load next training batch
+                    self.input_node, self.label_node = self.loader.get_next_batch()
 
-                # validate network
-                if batch % self.val_frequency == 0:
-                    logging.info('------------------------------------------------')
-                    logging.info(self.get_date_time() + ': Validating Network ... ')
-                    loss, self.val_accuracy = self.sess.run([self.loss, self.accuracy_op], feed_dict={self.input_node,
-                                                                                                      self.label_node})
-                    logging.info(self.get_date_time() + ': epoch = %d, batch = %d, accuracy = %.3f' % (epoch, batch, self.train_accuracy))
-                    logging.info('------------------------------------------------')
+                    # train
+                    _, loss, self.train_accuracy = self.sess.run([optimiser, self.loss, self.accuracy_op], feed_dict={self.input_node,
+                                                                                                                      self.label_node})
 
-                if batch % self.log_frequency == 0:
-                    logging.info(self.get_date_time() + ': epoch = %d, batch = %d, accuracy = %.3f' % (epoch, batch, self.train_accuracy))
+                    # validate network
+                    if batch % self.val_frequency == 0:
+                        logging.info('------------------------------------------------')
+                        logging.info(self.get_date_time() + ': Validating Network ... ')
+                        loss, self.val_accuracy = self.sess.run([self.loss, self.accuracy_op], feed_dict={self.input_node,
+                                                                                                          self.label_node})
+                        logging.info(self.get_date_time() + ': epoch = %d, batch = %d, accuracy = %.3f' % (epoch, batch, self.train_accuracy))
+                        logging.info('------------------------------------------------')
 
-                if batch % self.save_frequency == 0:
-                    checkpoint_path = os.path.join(self.checkpoint_dir, 'model%d.ckpt' % step)
-                    logging.info('------------------------------------------------')
-                    logging.info(self.get_date_time() + ': epoch = %d, batch = %d, accuracy = %.3f' % (epoch, batch, self.train_accuracy))
-                    logging.info(self.get_date_time() + ': Saving model as %s' % checkpoint_path)
-                    logging.info('------------------------------------------------')
+                    if batch % self.log_frequency == 0:
+                        logging.info(self.get_date_time() + ': epoch = %d, batch = %d, accuracy = %.3f' % (epoch, batch, self.train_accuracy))
 
-                    self.saver.save(self.sess, checkpoint_path)
-                    os.path.join(self.checkpoint_dir, 'model.ckpt')        # save a copy of the latest model
+                    if batch % self.save_frequency == 0:
+                        checkpoint_path = os.path.join(self.checkpoint_dir, 'model%d.ckpt' % step)
+                        logging.info('------------------------------------------------')
+                        logging.info(self.get_date_time() + ': epoch = %d, batch = %d, accuracy = %.3f' % (epoch, batch, self.train_accuracy))
+                        logging.info(self.get_date_time() + ': Saving model as %s' % checkpoint_path)
+                        logging.info('------------------------------------------------')
 
-                step += 1
+                        self.saver.save(self.sess, checkpoint_path)
+                        os.path.join(self.checkpoint_dir, 'model.ckpt')        # save a copy of the latest model
+
+                    step += 1
+
+        except Exception as err:
+            logging.error(str(err))
+            # close TensorBoard
+            self._close_tensorboard()
+            # close TensorFlow Session
+            self.sess.close()
+
+
+    @staticmethod
+    def _close_tensorboard():
+        """ Shut-down Tensorboard """
+        logging.info('Closing Tensorboard.')
+        tensorboard_id = os.popen('pgrep tensorboard').read()
+        os.system('kill ' + tensorboard_id)
+
 
     @staticmethod
     def get_date_time():

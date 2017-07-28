@@ -11,13 +11,14 @@ Grasp Metrics." Robotics, Science, and Systems, 2017. Cambridge, MA.
 
 """
 
-
-from skimage import io
-import skimage.transform
 import numpy as np
 import pickle as pkl
 import logging
 import os
+
+
+# Display logging info
+logging.getLogger().setLevel(logging.INFO)
 
 
 class DataLoader(object):
@@ -27,8 +28,12 @@ class DataLoader(object):
 
         self._network = network
         self.config = config
-        self.img_data_buffer = np.array([])
-        self.label_data_buffer = np.array([])
+
+        # initialise buffers to store data from loaded file
+        img_shape = [0, self._network.img_width, self._network.img_height, self._network.img_channels]
+        label_shape = [0, self._network.num_classes]
+        self.img_data_buffer = np.empty(img_shape)
+        self.label_data_buffer = np.empty(label_shape)
 
         # init methods
         self._setup_config()
@@ -38,24 +43,24 @@ class DataLoader(object):
     def _setup_config(self):
 
         # data-set config
-        self.filename_templates = self.config[self._network.name]['filename_templates']
+        self.filename_templates = self.config['filename_templates']
 
         # network config
         self.train_fraction = self._network.config['train_frac']
-        self.images_per_file = self._network.config['images_per_file']
+        self.images_per_file = self.config['images_per_file']
 
     def _setup_filenames(self):
         """ Load file names from data-set and randomly select a pre-set fraction to train on """
 
         # read all data filenames
-        all_filenames = os.listdir(self._network.data_dir)
+        all_filenames = os.listdir(self._network.dataset_dir)
 
         # get image files
-        self.img_filenames = [f for f in all_filenames if f.find(self.filename_templates.depth_imgs) > -1]
+        self.img_filenames = [f for f in all_filenames if f.find(self.filename_templates['depth_imgs']) > -1]
         # get pose files
         # self.pose_filenames = [f for f in all_filenames if f.find(ImageFileTemplates.hand_poses_template) > -1]
         # get label files
-        self.label_filenames = [f for f in all_filenames if f.find(self.filename_templates.labels) > -1]
+        self.label_filenames = [f for f in all_filenames if f.find(self.filename_templates['labels']) > -1]
 
         self.img_filenames.sort(key=lambda x: int(x[-9:-4]))
         # self.pose_filenames.sort(key=lambda x: int(x[-9:-4]))
@@ -87,7 +92,7 @@ class DataLoader(object):
         val_indices = np.sort(all_indices[self.num_train:])
 
         # make a map of the train and test indices for each file
-        logging.info(self._network.get_date_time() + ' : Computing filename-to-training data indices...')
+        logging.info(self._network.get_date_time() + ' : Computing filename-to-training data indices.')
         train_index_map_filename = os.path.join(self._network.cache_dir, 'train_indices_map.pkl')
         self.val_index_map_filename = os.path.join(self._network.cache_dir, 'val_indices_map.pkl')
 
@@ -103,11 +108,13 @@ class DataLoader(object):
             for i, img_filename in enumerate(self.img_filenames):
                 lower = i * self.images_per_file
                 upper = (i + 1) * self.images_per_file
-                im_arr = np.load(os.path.join(self._network.data_dir, img_filename))['arr_0']
+                im_arr = np.load(os.path.join(self._network.dataset_dir, img_filename))['arr_0']
                 self.train_index_map[img_filename] = train_indices[(train_indices >= lower) & (train_indices < upper) &
                                                                    (train_indices - lower < im_arr.shape[0])] - lower
                 self.val_index_map[img_filename] = val_indices[(val_indices >= lower) & (val_indices < upper) & (
                                                                     val_indices - lower < im_arr.shape[0])] - lower
+
+            logging.info(self._network.get_date_time() + ' : Writing filename-to-training map to file.')
             pkl.dump(self.train_index_map, open(train_index_map_filename, 'w'))
             pkl.dump(self.val_index_map, open(self.val_index_map_filename, 'w'))
 
@@ -124,8 +131,8 @@ class DataLoader(object):
             label_filename = self.label_filenames[file_id]
 
             # create file-paths
-            img_file_path = os.path.join(self._network.data_dir, img_filename)
-            label_file_path = os.path.join(self._network.data_dir, label_filename)
+            img_file_path = os.path.join(self._network.dataset_dir, img_filename)
+            label_file_path = os.path.join(self._network.dataset_dir, label_filename)
 
             # load new data
             img_data = np.load(img_file_path)['arr_0']
@@ -139,9 +146,13 @@ class DataLoader(object):
             img_data = img_data[train_idx]
             label_data = label_data[train_idx]
 
+            # copy first channel into all three (for compatibility with AlexNet)
+            img_data = np.repeat(img_data, self._network.img_channels, axis=self._network.img_channels)
+
             # add new data to buffers
-            self.img_data_buffer = np.concatenate(self.img_data_buffer, img_data)
-            self.label_data_buffer = np.concatenate(self.label_data_buffer, label_data)
+            # TODO: resize images
+            self.img_data_buffer = np.concatenate((self.img_data_buffer, img_data))
+            self.label_data_buffer = np.concatenate((self.label_data_buffer, label_data))
 
         img_batch = self.img_data_buffer[:self._network.batch_size]
         label_batch = self.label_data_buffer[:self._network.batch_size]
@@ -161,27 +172,3 @@ class DataLoader(object):
 
         return img_batch, labels_batch
 
-# class ImageOps():
-#
-# def upsample_skimage(factor, input_img):
-#     # Pad with 0 values, similar to how Tensorflow does it.
-#     # Order=1 is bilinear upsampling
-#     return skimage.transform.rescale(input_img,
-#                                      factor,
-#                                      mode='constant',
-#                                      cval=0,
-#                                      order=1)
-#
-#
-# dir = '/home/noorvir/datasets/gqcnn/dexnet_mini/'
-# file = 'depth_ims_tf_00000.npz'
-#
-# img = np.load(dir + file)['arr_0'][0]
-# img = np.reshape(img, [32, 32])
-#
-# # io.imshow(img, interpolation='none')
-# # io.show()
-# upsampled_img_skimage = upsample_skimage(factor=8, input_img=img)
-# io.imshow(upsampled_img_skimage, interpolation='none')
-# io.show()
-# pass

@@ -28,16 +28,25 @@ from dexnet.database.keys import *
 from perception import RenderMode
 from dexnet.grasping import GraspCollisionChecker, RobotGripper
 import dexnet.database.database as db
+
 from gqcnn import Visualizer as vis2d
 from gqcnn import Grasp2D
+
+
+from grasp_ucl.utils.visualise import UCLVisualiser as vis
+from grasp_ucl.database.transformations import ImageTransform
+
 from natsort import natsorted, ns
-from visualise import UCLVisualiser as vis
 import numpy as np
 import cPickle as pkl
-import os
-import time
+import logging
 import warnings
 import operator
+import time
+import os
+
+# Display logging info
+logging.getLogger().setLevel(logging.INFO)
 
 
 class UCLDatabaseGQCNN(object):
@@ -86,6 +95,28 @@ class UCLDatabaseGQCNN(object):
 
             print('Time taken for writing %d non-zero metric points: %s(s)\n' % (len(self.metric_list),
                                                                                  (time.time() - st_time)))
+
+
+    def create_images(self, input_filename_template, output_filename_template):
+        """ Modify existing images to the desired format"""
+
+        # load images
+        img_filenames = self.load_filenames(self.dataset_dir, input_filename_template)
+
+        num_files = len(img_filenames)
+        for _id, filename in enumerate(img_filenames):
+
+            imgs = np.load(os.path.join(self.dataset_dir, filename))['arr_0']
+            logging.info('Resampling images from file %d of %d. %d images.' % (_id, num_files, len(imgs)))
+
+            # upsample
+            scaled_images = ImageTransform.resample(imgs, self.config['output_img_size'])
+            scaled_images = {'arr_0': scaled_images}
+
+            # save
+            output_filename = output_filename_template + '_' + str(filename[-9:-4])
+            output_file_path = os.path.join(self.dataset_output_dir, output_filename)
+            np.savez(output_file_path, scaled_images)
 
 
     def create_labels(self):
@@ -168,6 +199,41 @@ class UCLDatabaseGQCNN(object):
         print('All labels written to file in %s(s)' % str(time.time() - st_time))
 
 
+    def normalise(self, data, normalisation_type='linear'):
+        """ Normalise data to the range [0,1] """
+
+        if normalisation_type == 'linear':
+            normalised_data = (data - self.metric_min)/(self.metric_max - self.metric_min)
+            normalised_data = np.clip(normalised_data, 0, float('inf'))         # corner case for grasps in collision
+
+        elif normalisation_type == 'percentile':
+            normalised_data = np.copy(data)
+            # non-zero data list
+            map_non_zero_org = np.where(data != 0)
+            non_zero_data = data[map_non_zero_org]
+            num_data_points = len(non_zero_data)
+
+            # keep track of indices
+            map_sorted_non_zero = np.argsort(non_zero_data)
+
+            # normalise
+            data_idx = np.arange(1, num_data_points + 1)
+            sorted_normalised_data = data_idx / float(num_data_points)
+
+            # map data back to original indices
+            non_zero_normalised_data = np.zeros(num_data_points)
+            non_zero_normalised_data[map_sorted_non_zero] = sorted_normalised_data
+            normalised_data[map_non_zero_org] = non_zero_normalised_data
+
+        elif normalisation_type == 'gamma':
+            pass
+
+        else:
+            raise ValueError('Unknown normalisation_type %s' % normalisation_type)
+
+        return normalised_data
+
+
     def visualise(self, vis_type='histogram'):
         """ Visualise different data metrics """
 
@@ -211,40 +277,6 @@ class UCLDatabaseGQCNN(object):
             vis.histogram(histogram_data, bins['labels'])
 
 
-    def normalise(self, data, normalisation_type='linear'):
-        """ Normalise data to the range [0,1] """
-
-        if normalisation_type == 'linear':
-            normalised_data = (data - self.metric_min)/(self.metric_max - self.metric_min)
-            normalised_data = np.clip(normalised_data, 0, float('inf'))         # corner case for grasps in collision
-
-        elif normalisation_type == 'percentile':
-            normalised_data = np.copy(data)
-            # non-zero data list
-            map_non_zero_org = np.where(data != 0)
-            non_zero_data = data[map_non_zero_org]
-            num_data_points = len(non_zero_data)
-
-            # keep track of indices
-            map_sorted_non_zero = np.argsort(non_zero_data)
-
-            # normalise
-            data_idx = np.arange(1, num_data_points + 1)
-            sorted_normalised_data = data_idx / float(num_data_points)
-
-            # map data back to original indices
-            non_zero_normalised_data = np.zeros(num_data_points)
-            non_zero_normalised_data[map_sorted_non_zero] = sorted_normalised_data
-            normalised_data[map_non_zero_org] = non_zero_normalised_data
-
-        elif normalisation_type == 'gamma':
-            pass
-
-        else:
-            raise ValueError('Unknown normalisation_type %s' % normalisation_type)
-
-        return normalised_data
-
     @staticmethod
     def histogram(data, num_bins, min_bin=0, max_bin=1):
         """ Digitise data into num_bins bins in the range [0,1] """
@@ -261,7 +293,6 @@ class UCLDatabaseGQCNN(object):
         data = np.array(data)
 
         return min_bin + np.round(data/bin_step) * bin_step
-
 
     @staticmethod
     def create_one_hot(data, labels):
@@ -281,6 +312,17 @@ class UCLDatabaseGQCNN(object):
 
         return one_hot_data
 
+    @staticmethod
+    def load_filenames(directory, template, sort=True):
+        """ Load a list of filenames matching the template from a given directory"""
+
+        filenames = os.listdir(directory)
+        matched_filenames = [name for name in filenames if name.find(template) > -1]
+
+        if sort:
+            matched_filenames = natsorted(matched_filenames)
+
+        return matched_filenames
 
     @staticmethod
     def fit_dist(data, dist_type='normal'):
@@ -336,6 +378,7 @@ class UCLDatabaseDexnet(object):
         self.output_img_crop_width = self.config['output_image_params']['output_img_crop_width']
         self.output_img_crop_height = self.config['output_image_params']['output_img_crop_height']
 
+
     def _setup_collision_checker_params(self):
         """ Setup the discrete space over which to sample the collision checking """
 
@@ -369,10 +412,12 @@ class UCLDatabaseDexnet(object):
     def get_object_keys(self):
         pass
 
+
     def _get_stable_poses(self):
         """ Get the stable poses in which the object can be placed on the table"""
         for key in self.hdf5_ds.object_keys:
             self.stable_poses[key] = self.hdf5_ds.stable_poses(key)
+
 
     def _get_collision_free_grasps(self, obj, all_grasps):
         """ Filters out grasps that are in collision with the table"""
@@ -437,6 +482,7 @@ class UCLDatabaseDexnet(object):
                 num_data_points += 1
 
         return valid_grasps, num_data_points
+
 
     def get_grasps(self, num_objs=float('inf')):
         """ Get grasps for the given object and gripper. Saves the resulting grasping into cache"""
@@ -714,6 +760,7 @@ if __name__ == '__main__':
     # UCL_GQCNN
     ucl_gqcnn_db = UCLDatabaseGQCNN(gqcnn_config)
     # ucl_gqcnn_db.get_metric_stats()                 # get statistics about successful grasps
-    ucl_gqcnn_db.create_labels()                    # create one-hot labels for quality function
+    ucl_gqcnn_db.create_images('depth_ims_tf_table', 'depth_ims_stf_{}_table'.format(gqcnn_config['output_img_size']))
+    # ucl_gqcnn_db.create_labels()                    # create one-hot labels for quality function
     # ucl_gqcnn_db.visualise()
     pass

@@ -67,6 +67,7 @@ class UCLDatabaseGQCNN(object):
         self.metric_stats_filename = config['metric_stats_filename']
         self.labels = config['labels']
         self.bin_step = config['bin_step']
+        self.label_threshold = config['label_threshold']
 
 
     def get_metric_stats(self):
@@ -154,6 +155,11 @@ class UCLDatabaseGQCNN(object):
                 print('Loading data from file number %d out of %d' % (i + 1, len(metric_filenames)))
 
 
+        # convert raw data to binary labels
+        logging.info('Thresholding data data...')
+        binary_data = self.create_binary(np.copy(data), threshold=self.label_threshold)
+        binary_data = self.create_one_hot(binary_data, [0, 1])
+
         # normalise
         print('Normalising data...')
         normalised_data = self.normalise(data, normalisation_type=self.config['normalisation_type'])
@@ -173,6 +179,9 @@ class UCLDatabaseGQCNN(object):
         for i, filename in enumerate(metric_filenames):
 
             # filenames
+            binary_label_filename = 'binary_labels_' + filename[-9:-4]
+            binary_label_path = os.path.join(self.dataset_output_dir, binary_label_filename)
+
             binned_label_filename = 'binned_labels_' + filename[-9:-4]
             binned_label_path = os.path.join(self.dataset_output_dir, binned_label_filename)
 
@@ -180,6 +189,7 @@ class UCLDatabaseGQCNN(object):
             one_hot_label_path = os.path.join(self.dataset_output_dir, one_hot_label_filename)
 
             if end_index <= (len(binned_data) - 1):
+                binary_file_data = binary_data[start_index: end_index]
                 binned_file_data = binned_data[start_index: end_index]
                 one_hot_file_data = one_hot_data[start_index: end_index, :]
 
@@ -187,9 +197,15 @@ class UCLDatabaseGQCNN(object):
                 end_index = end_index + self.config['num_points_per_file']
 
             else:
+                binary_file_data = binary_data[start_index:]
                 binned_file_data = binned_data[start_index:]
                 one_hot_file_data = one_hot_data[start_index:, :]
 
+            # add a extra array dimension for convenience at training time
+            binned_file_data = np.expand_dims(binned_file_data, axis=1)
+
+            # save
+            np.savez_compressed(binary_label_path, binary_file_data)
             np.savez_compressed(binned_label_path, binned_file_data)
             np.savez_compressed(one_hot_label_path, one_hot_file_data)
 
@@ -311,6 +327,14 @@ class UCLDatabaseGQCNN(object):
         one_hot_data[np.arange(len(data)), data_idx.astype(int)] = 1
 
         return one_hot_data
+
+    @staticmethod
+    def create_binary(data, threshold):
+        """ Thresholds input data"""
+
+        binary_data = (data >= threshold).astype(np.int)
+
+        return binary_data
 
     @staticmethod
     def load_filenames(directory, template, sort=True):
@@ -760,7 +784,7 @@ if __name__ == '__main__':
     # UCL_GQCNN
     ucl_gqcnn_db = UCLDatabaseGQCNN(gqcnn_config)
     # ucl_gqcnn_db.get_metric_stats()                 # get statistics about successful grasps
-    ucl_gqcnn_db.create_images('depth_ims_tf_table', 'depth_ims_stf_{}_table'.format(gqcnn_config['output_img_size']))
-    # ucl_gqcnn_db.create_labels()                    # create one-hot labels for quality function
+    # ucl_gqcnn_db.create_images('depth_ims_tf_table', 'depth_ims_stf_{}_table'.format(gqcnn_config['output_img_size']))
+    ucl_gqcnn_db.create_labels()                    # create one-hot labels for quality function
     # ucl_gqcnn_db.visualise()
     pass

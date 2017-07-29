@@ -1,8 +1,8 @@
 # GUAN-t network
 guant:
   filename_templates:
-    depth_imgs: depth_ims_tf_table
-    labels: one_hot_labels
+    depth_imgs: depth_ims_stf_227_table
+    labels: binary_labels
 
   images_per_file: 1000
 

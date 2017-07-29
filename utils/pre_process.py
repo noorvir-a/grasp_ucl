@@ -35,6 +35,10 @@ class DataLoader(object):
         self.img_data_buffer = np.empty(img_shape)
         self.label_data_buffer = np.empty(label_shape)
 
+        # val buffer TODO: merge these with img_data_buffer
+        self.img_val_data_buffer = np.empty(img_shape)
+        self.label_val_data_buffer = np.empty(label_shape)
+
         # init methods
         self._setup_config()
         self._setup_filenames()
@@ -47,6 +51,7 @@ class DataLoader(object):
 
         # network config
         self.train_fraction = self._network.config['train_frac']
+        self.total_data_fraction = self._network.config['total_data_frac']
         self.images_per_file = self.config['images_per_file']
 
     def _setup_filenames(self):
@@ -68,7 +73,7 @@ class DataLoader(object):
 
         # randomly choose files for training and validation
         num_files = len(self.img_filenames)
-        num_files_used = int(self.train_fraction * num_files)
+        num_files_used = int(self.total_data_fraction * num_files)
         filename_indices = np.random.choice(num_files, size=num_files_used, replace=False)
         filename_indices.sort()
 
@@ -119,6 +124,52 @@ class DataLoader(object):
             pkl.dump(self.val_index_map, open(self.val_index_map_filename, 'w'))
 
 
+    # TODO: make one method out of this and get_next_val_batch
+    def get_next_val_batch(self):
+        """ Get next validation batch """
+
+        # get next batch from loaded array. if the array length is smaller than batch size, load next file and append to array
+        while len(self.img_val_data_buffer) < self._network.batch_size:
+            # load next file
+
+            file_id = np.random.choice(len(self.img_filenames), size=1)[0]
+            img_filename = self.img_filenames[file_id]
+            label_filename = self.label_filenames[file_id]
+
+            # create file-paths
+            img_file_path = os.path.join(self._network.dataset_dir, img_filename)
+            label_file_path = os.path.join(self._network.dataset_dir, label_filename)
+
+            # load new data
+            # TODO: Convert labels to binary
+            img_data = np.load(img_file_path)['arr_0']
+            label_data = np.load(label_file_path)['arr_0']
+
+            # get data-point indices assigned for training
+            train_idx = self.val_index_map[img_filename]
+            np.random.shuffle(train_idx)
+
+            # remove validation data-points
+            img_data = img_data[train_idx]
+            label_data = label_data[train_idx]
+
+            # copy first channel into all three (for compatibility with AlexNet)
+            img_data = np.repeat(img_data, self._network.img_channels, axis=self._network.img_channels)
+
+            # add new data to buffers
+            self.img_val_data_buffer = np.concatenate((self.img_val_data_buffer, img_data), axis=0)
+            self.label_val_data_buffer = np.concatenate((self.label_val_data_buffer, label_data), axis=0)
+
+        img_batch = self.img_val_data_buffer[:self._network.batch_size]
+        label_batch = self.label_val_data_buffer[:self._network.batch_size]
+
+        # remove batch from buffers
+        self.img_val_data_buffer = np.delete(self.img_val_data_buffer, np.s_[:self._network.batch_size], axis=0)
+        self.label_val_data_buffer = np.delete(self.label_val_data_buffer, np.s_[:self._network.batch_size], axis=0)
+
+        return img_batch, label_batch
+
+
     def get_next_batch(self):
         """ Get the next batch of training data"""
 
@@ -135,6 +186,7 @@ class DataLoader(object):
             label_file_path = os.path.join(self._network.dataset_dir, label_filename)
 
             # load new data
+            # TODO: Convert labels to binary
             img_data = np.load(img_file_path)['arr_0']
             label_data = np.load(label_file_path)['arr_0']
 
@@ -150,16 +202,15 @@ class DataLoader(object):
             img_data = np.repeat(img_data, self._network.img_channels, axis=self._network.img_channels)
 
             # add new data to buffers
-            # TODO: resize images
-            self.img_data_buffer = np.concatenate((self.img_data_buffer, img_data))
-            self.label_data_buffer = np.concatenate((self.label_data_buffer, label_data))
+            self.img_data_buffer = np.concatenate((self.img_data_buffer, img_data), axis=0)
+            self.label_data_buffer = np.concatenate((self.label_data_buffer, label_data), axis=0)
 
         img_batch = self.img_data_buffer[:self._network.batch_size]
         label_batch = self.label_data_buffer[:self._network.batch_size]
 
         # remove batch from buffers
-        self.img_data_buffer = np.delete(self.img_data_buffer, np.s_[:self._network.batch_size])
-        self.label_data_buffer = np.delete(self.label_data_buffer, np.s_[:self._network.batch_size])
+        self.img_data_buffer = np.delete(self.img_data_buffer, np.s_[:self._network.batch_size], axis=0)
+        self.label_data_buffer = np.delete(self.label_data_buffer, np.s_[:self._network.batch_size], axis=0)
 
         return img_batch, label_batch
 

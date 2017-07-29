@@ -25,6 +25,8 @@ class GUANt(object):
 
         # initialise network
         self._sess = None
+        # keep track of whether TensorFlow train/test ops have been initialised
+        self._tensorflow_initialised = False
         self.create_network()
         self._graph = tf.get_default_graph()
 
@@ -59,8 +61,8 @@ class GUANt(object):
     def create_network(self):
         """ Create GUAN-t on top of AlexNet"""
 
-        self.input_node = tf.placeholder(tf.float32, [self.batch_size, self.img_width, self.img_height, self.img_channels])
-        self.label_node = tf.placeholder(tf.float32, [self.batch_size, self.num_classes])
+        self.input_node = tf.placeholder(tf.float32, [self.batch_size, self.img_width, self.img_height, self.img_channels], name='input_node')
+        self.label_node = tf.placeholder(tf.uint8, [self.batch_size, self.num_classes], name='label_node')
         self.keep_prob = tf.placeholder(tf.float32)
 
         # initialise raw AlexNet
@@ -159,14 +161,14 @@ class GUANt(object):
         for gradient, var in gradients:
             tf.summary.histogram(var.name[:-2] + '/gradient', gradient)
 
-        # training accuracy
-        tf.summary.scalar('train_accuracy', self.train_accuracy)
-        # validation accuracy
-        tf.summary.scalar('val_accuracy', self.val_accuracy)
+        # accuracy
+        tf.summary.scalar('train_accuracy', self.accuracy_op)
+        tf.summary.scalar('val_accuracy', self.accuracy_op)
+        # error
+        tf.summary.scalar('train_error', self.error_rate_op)
+        tf.summary.scalar('val_error', self.error_rate_op)
 
-        # training error
-        # validation error
-
+        self.merged_summaries = tf.summary.merge_all()
         self.summariser = tf.summary.FileWriter(self.summary_dir)
 
 
@@ -207,23 +209,16 @@ class GUANt(object):
 
         # setup accuracy
         with tf.name_scope('accuracy_op'):
-            prediction_outcome = tf.equal(tf.argmax(self.network_output), tf.argmax(self.label_node), name='prediction_outcome')
-            self.accuracy_op = tf.reduce_mean(tf.cast(prediction_outcome, tf.float32), name='accuracy_op')
+            self.prediction_outcome = tf.equal(tf.argmax(self.network_output, axis=1), tf.argmax(self.label_node, axis=1), name='prediction_outcome')
+            self.accuracy_op = tf.reduce_mean(tf.cast(self.prediction_outcome, tf.float32), name='accuracy_op')
 
         with tf.name_scope('error_rate'):
             self.error_rate_op = tf.subtract(1.0, self.accuracy_op)
 
-        with tf.name_scope('train_accuracy'):
-            self.train_accuracy = tf.placeholder(tf.float32)
-
-        with tf.name_scope('val_accuracy'):
-            self.val_accuracy = tf.placeholder(tf.float32)
-
-        # setup saver
-        self.saver = tf.train.Saver()
-
         # initialise Tensorflow Session and variables
         self.sess = self._open_session()
+        self._tensorflow_initialised = True
+
 
 
     def _launch_tensorboard(self):
@@ -236,89 +231,141 @@ class GUANt(object):
     def optimise(self, weights_init='pre_trained'):
         """ Initialise training routine and optimise"""
 
-        try:
-            # create loss
-            with tf.name_scope('loss'):
-                self.loss = self._create_loss()
+        # try:
+        # create loss
+        with tf.name_scope('loss'):
+            self.loss = self._create_loss()
 
-            # create requlariser to penalise large weights
+        # create requlariser to penalise large weights
 
-            # create optimiser
-            with tf.name_scope('optimiser'):
-                optimiser = self._create_optimiser()
+        # create optimiser
+        with tf.name_scope('optimiser'):
+            optimiser = self._create_optimiser()
 
-            # define accuracy
+        # define accuracy
 
-            # initialise TensorFlow variables
-            self._init_tensorflow()
-            # setup weight decay (optional)
+        # initialise TensorFlow variables
+        self._init_tensorflow()
+        # setup saver
+        self.saver = tf.train.Saver()
+        # setup weight decay (optional)
 
-            self._init_summaries()
-            self._launch_tensorboard()
-            # add graph to summary
+        self._init_summaries()
+        self._launch_tensorboard()
 
-            # number of batches per epoch
-            batches_per_epoch = int(self.num_training_samples/self.batch_size)
-
-
-            # initialise weights
-            if weights_init == 'pre_trained':
-                self._load_pretrained_weights()
-            elif weights_init == 'checkpoint':
-                self._load_weights_from_checkpoint()
-            else:
-                self._init_weights()
-
-            # init variables
-            self.sess.run(tf.global_variables_initializer())
-
-            # total training steps
-            step = 0
+        # number of batches per epoch
+        batches_per_epoch = int(self.num_training_samples/self.batch_size)
 
 
-            # iterate over training epochs
-            for epoch in xrange(self.config['num_epochs']):
+        # initialise weights
+        if weights_init == 'pre_trained':
+            self._load_pretrained_weights()
+        elif weights_init == 'checkpoint':
+            self._load_weights_from_checkpoint()
+        else:
+            self._init_weights()
 
-                # iterate over all batches
-                for batch in xrange(batches_per_epoch):
+        # TODO: add graph to summary
 
-                    # load next training batch
-                    self.input_node, self.label_node = self.loader.get_next_batch()
+        # init variables
+        self.sess.run(tf.global_variables_initializer())
 
-                    # train
-                    _, loss, self.train_accuracy = self.sess.run([optimiser, self.loss, self.accuracy_op], feed_dict={self.input_node,
-                                                                                                                      self.label_node})
+        # total training steps
+        step = 0
 
-                    # validate network
-                    if batch % self.val_frequency == 0:
-                        logging.info('------------------------------------------------')
-                        logging.info(self.get_date_time() + ': Validating Network ... ')
-                        loss, self.val_accuracy = self.sess.run([self.loss, self.accuracy_op], feed_dict={self.input_node,
-                                                                                                          self.label_node})
-                        logging.info(self.get_date_time() + ': epoch = %d, batch = %d, accuracy = %.3f' % (epoch, batch, self.train_accuracy))
-                        logging.info('------------------------------------------------')
+        # Directory for current model
+        model_dir = '{:%y-%m-%d-%H:%M:%S}'.format(datetime.now())
 
-                    if batch % self.log_frequency == 0:
-                        logging.info(self.get_date_time() + ': epoch = %d, batch = %d, accuracy = %.3f' % (epoch, batch, self.train_accuracy))
+        # iterate over training epochs
+        for epoch in xrange(self.config['num_epochs']):
 
-                    if batch % self.save_frequency == 0:
-                        checkpoint_path = os.path.join(self.checkpoint_dir, 'model%d.ckpt' % step)
-                        logging.info('------------------------------------------------')
-                        logging.info(self.get_date_time() + ': epoch = %d, batch = %d, accuracy = %.3f' % (epoch, batch, self.train_accuracy))
-                        logging.info(self.get_date_time() + ': Saving model as %s' % checkpoint_path)
-                        logging.info('------------------------------------------------')
+            # iterate over all batches
+            for batch in xrange(batches_per_epoch):
 
-                        self.saver.save(self.sess, checkpoint_path)
-                        os.path.join(self.checkpoint_dir, 'model.ckpt')        # save a copy of the latest model
+                # load next training batch
+                input_batch, label_batch = self.loader.get_next_batch()
 
-                    step += 1
 
-        except Exception as err:
-            logging.error(str(err))
-            # close TensorBoard
-            self._close_tensorboard()
-            # close TensorFlow Session
-            self.sess.close()
+                # ---------------------------------
+                # 1. optimise
+                # ---------------------------------
+                # variables to run
+                run_vars = [optimiser, self.loss, self.accuracy_op, self.network_output, self.prediction_outcome]
+                # variables to feed into the graph TODO: change keep-prob for dropout
+                feed_dict = {self.input_node: input_batch, self.label_node: label_batch, self.keep_prob: 0.5}
+                # run
+                run_op_outupt = self.sess.run(run_vars, feed_dict=feed_dict)
+                # outputs of run op
+                _, loss, self.train_accuracy, output, prediction_outcome = run_op_outupt
+
+
+                # ---------------------------------
+                # 2. validate
+                # ---------------------------------
+                if (batch + 1) % self.val_frequency == 0:
+
+                    # get data
+                    input_batch, label_batch = self.loader.get_next_val_batch()
+                    self.val_accuracy, _, _ = self.predict(input_batch, label_batch)
+
+                    logging.info('------------------------------------------------')
+                    logging.info(self.get_date_time() + ': Validating Network ... ')
+                    logging.info(self.get_date_time() + ': epoch = %d, batch = %d, accuracy = %.3f' % (epoch, batch, self.val_accuracy))
+                    logging.info('------------------------------------------------')
+
+                    # log summaries
+                    summary = self.sess.run(self.merged_summaries, feed_dict=feed_dict)
+                    self.summariser.add_summary(summary, step)
+
+                # log
+                if batch % self.log_frequency == 0:
+                    logging.info(self.get_date_time() + ': epoch = %d, batch = %d, accuracy = %.3f' % (epoch, batch, self.train_accuracy))
+
+                    # log summaries
+                    summary = self.sess.run(self.merged_summaries, feed_dict=feed_dict)
+                    self.summariser.add_summary(summary, step)
+
+                # save
+                if (batch + 1) % self.save_frequency == 0:
+                    checkpoint_path = os.path.join(self.checkpoint_dir, model_dir, 'model%d.ckpt' % step)
+                    logging.info('------------------------------------------------')
+                    logging.info(self.get_date_time() + ': epoch = %d, batch = %d, accuracy = %.3f' % (epoch, batch, self.train_accuracy))
+                    logging.info(self.get_date_time() + ': Saving model as %s' % checkpoint_path)
+                    logging.info('------------------------------------------------')
+
+                    latest_checkpoint_path = os.path.join(self.checkpoint_dir, model_dir, 'model.ckpt')        # save a copy of the latest model
+                    self.saver.save(self.sess, checkpoint_path)
+                    self.saver.save(self.sess, latest_checkpoint_path)
+
+                step += 1
+
+        # except Exception as err:
+        #     logging.error(str(err))
+        #     # close TensorBoard
+        #     self._close_tensorboard()
+        #     # close TensorFlow Session
+        #     self.sess.close()
+
+
+    def predict(self, input_batch, label_batch):
+        """ Predict """
+
+        with self._graph.as_default():
+
+            # init TensorFlow Session
+            if not self._tensorflow_initialised:
+                self._init_tensorflow()
+
+            # variables to run
+            run_vars = [self.accuracy_op, self.network_output, self.prediction_outcome]
+            # variables to feed into the graph TODO: change keep-prob for dropout
+            feed_dict = {self.input_node: input_batch, self.label_node: label_batch, self.keep_prob: 0.5}
+            # run
+            run_op_outupt = self.sess.run(run_vars, feed_dict=feed_dict)
+            # outputs of run op
+            accuracy, output, prediction_outcomes = run_op_outupt
+
+        return accuracy, output, prediction_outcomes
 
 
     @staticmethod

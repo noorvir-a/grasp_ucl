@@ -41,6 +41,8 @@ class UCLVisualiser(object):
             x_tick_labels = [bins[int(tick)] for tick in x_ticks]
             ax.set_xticklabels(['{:.1e}'.format(label) for label in x_tick_labels])
 
+        ax.set_xlabel('Robust Ferrau Canny Metric')
+        ax.set_ylabel('Number of samples')
         plt.show()
 
 

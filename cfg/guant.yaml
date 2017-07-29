@@ -1,5 +1,5 @@
 # Directories
-dataset_dir: /home/noorvir/datasets/gqcnn/dexnet_mini_ucl/
+dataset_dir: /home/noorvir/datasets/gqcnn/test/
 cache_dir: /home/noorvir/datasets/gqcnn/cache/
 summary_dir: /home/noorvir/datasets/
 checkpoint_dir: /home/noorvir/tf_models/GUAN-t/checkpoints/
@@ -11,13 +11,14 @@ pt_weights_filename: /home/noorvir/tf_models/AlexNet/bvlc_alexnet.npy
 # Training parameters
 queue_capacity: 100                     # TODO
 num_epochs: 20
-batch_size: 50
+batch_size: 150
 optimiser: adam                         # adam, momentum or rmsprop
 loss: xentropy                          # l2, xentropy or sparse
 val_frequency: 1000                     # steps
 log_frequency: 100
 save_frequency: 5000
 
+total_data_frac: 1.0                         # fraction of the total training data to use
 train_frac: 0.8                         # fraction of data to use for training vs validation
 
 
@@ -26,7 +27,7 @@ architecture:
   img_width: 227
   img_height: 227
   img_channels: 3
-  num_classes: 6
+  num_classes: 2                        # 2 for binary 6 for quality
   retrain_layers:                       # layers of AlexNet to retrain
     - conv5
     - fc6

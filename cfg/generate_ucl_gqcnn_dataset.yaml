@@ -12,10 +12,11 @@ output_img_size: 227
 grasp_metric: robust_ferrari_canny
 num_bins: 6
 bin_step: 0.2
+label_threshold: 0.002                          # threshold for positive labels
 labels: [0.0, 0.2, 0.4, 0.6, 0.8, 1.0]
 normalisation_type: percentile
 
 # visualisation
 visualise_metric_stats: 1
-vis_histogram_num_bins: 5     # we do not visualise bin 0
-vis_histogram_bin_step: 0.2     # set to auto to automatically compute bin edges
+vis_histogram_num_bins: 100                    # 5 if visualising grasp quality bins (we do not visualise bin 0)
+vis_histogram_bin_step: 0.2                    # set to auto to automatically compute bin edges

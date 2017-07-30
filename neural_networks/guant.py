@@ -170,7 +170,7 @@ class GUANt(object):
         """ Set-up summaries"""
 
         # loss
-        tf.summary.scalar(self.config['loss'] + '_loss', self.loss, collections=['validation'])
+        tf.summary.scalar(self.config['loss'] + '_loss', self.loss, collections=['training_summary'])
 
         # gradients
         var_list = [var for var in tf.trainable_variables() if var.name.split('/')[0] in self.retrain_layers]
@@ -178,14 +178,14 @@ class GUANt(object):
         gradients = list(zip(gradients, var_list))
 
         for gradient, var in gradients:
-            tf.summary.histogram(var.name[:-2] + '/gradient', gradient)
+            tf.summary.histogram(var.name[:-2] + '/gradient', gradient, collections=['training_summary'])
 
         # accuracy
         tf.summary.scalar('train_accuracy', self.accuracy_op, collections=['training_summary'])
         tf.summary.scalar('val_accuracy', self.accuracy_op, collections=['validation_summary'])
         # error
-        tf.summary.scalar('train_error', self.error_rate_op, collections=['training'])
-        tf.summary.scalar('val_error', self.error_rate_op, collections=['validation'])
+        tf.summary.scalar('train_error', self.error_rate_op, collections=['training_summary'])
+        tf.summary.scalar('val_error', self.error_rate_op, collections=['validation_summary'])
 
         self.merged_train_summaries = tf.summary.merge_all('training_summary')
         self.merged_val_summaries = tf.summary.merge_all('validation_summary')

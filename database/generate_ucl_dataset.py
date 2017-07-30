@@ -112,7 +112,7 @@ class UCLDatabaseGQCNN(object):
 
             # upsample
             scaled_images = ImageTransform.resample(imgs, self.config['output_img_size'])
-            scaled_images = {'arr_0': scaled_images}
+            # scaled_images = {'arr_0': scaled_images}
 
             # save
             output_filename = output_filename_template + '_' + str(filename[-9:-4])

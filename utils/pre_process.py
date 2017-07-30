@@ -51,7 +51,7 @@ class DataLoader(object):
 
         # network config
         self.train_fraction = self._network.config['train_frac']
-        self.total_data_fraction = self._network.config['total_data_frac']
+        self.data_used_fraction = self._network.config['data_used_fraction']
         self.images_per_file = self.config['images_per_file']
 
     def _setup_filenames(self):
@@ -73,7 +73,7 @@ class DataLoader(object):
 
         # randomly choose files for training and validation
         num_files = len(self.img_filenames)
-        num_files_used = int(self.total_data_fraction * num_files)
+        num_files_used = int(self.data_used_fraction * num_files)
         filename_indices = np.random.choice(num_files, size=num_files_used, replace=False)
         filename_indices.sort()
 
@@ -96,19 +96,22 @@ class DataLoader(object):
         train_indices = np.sort(all_indices[:self.num_train])
         val_indices = np.sort(all_indices[self.num_train:])
 
-        # make a map of the train and test indices for each file
-        logging.info(self._network.get_date_time() + ' : Computing filename-to-training data indices.')
-        train_index_map_filename = os.path.join(self._network.cache_dir, 'train_indices_map.pkl')
-        self.val_index_map_filename = os.path.join(self._network.cache_dir, 'val_indices_map.pkl')
+        # filename for index map
+        train_map_name = 'train_indices_map_' + '{:.2f}'.format(self.data_used_fraction).replace('.', '_') + '.pkl'
+        val_map_name = 'train_indices_map_' + '{:.2f}'.format(self.data_used_fraction).replace('.', '_') + '.pkl'
+        train_map_path = os.path.join(self._network.cache_dir, train_map_name)
+        self.val_map_path = os.path.join(self._network.cache_dir, val_map_name)
 
-
-        if os.path.exists(train_index_map_filename):
-            self.train_index_map = pkl.load(open(train_index_map_filename, 'r'))
-            self.val_index_map = pkl.load(open(self.val_index_map_filename, 'r'))
+        # make a map of the train and test indices for each file or load precomputed map
+        if os.path.exists(train_map_path) and self.data_used_fraction == 1:
+            self.train_index_map = pkl.load(open(train_map_path, 'r'))
+            self.val_index_map = pkl.load(open(self.val_map_path, 'r'))
 
         else:
             self.train_index_map = {}
             self.val_index_map = {}
+
+            logging.info(self._network.get_date_time() + ' : Computing filename-to-training data indices.')
 
             for i, img_filename in enumerate(self.img_filenames):
                 lower = i * self.images_per_file
@@ -120,8 +123,8 @@ class DataLoader(object):
                                                                     val_indices - lower < im_arr.shape[0])] - lower
 
             logging.info(self._network.get_date_time() + ' : Writing filename-to-training map to file.')
-            pkl.dump(self.train_index_map, open(train_index_map_filename, 'w'))
-            pkl.dump(self.val_index_map, open(self.val_index_map_filename, 'w'))
+            pkl.dump(self.train_index_map, open(train_map_path, 'w'))
+            pkl.dump(self.val_index_map, open(self.val_map_path, 'w'))
 
 
     # TODO: make one method out of this and get_next_val_batch
@@ -173,8 +176,8 @@ class DataLoader(object):
     def get_next_batch(self):
         """ Get the next batch of training data"""
 
-        # get next batch from loaded array. if the array length is smaller than batch size, load next file and append to array
-        if len(self.img_data_buffer) < self._network.batch_size:
+        # if the buffer length is smaller than batch size, load next file
+        while len(self.img_data_buffer) < self._network.batch_size:
             # load next file
 
             file_id = np.random.choice(len(self.img_filenames), size=1)[0]

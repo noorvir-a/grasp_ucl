@@ -55,6 +55,7 @@ class GUANt(object):
         self.num_classes = self.config['architecture']['num_classes']
         self.learning_rate = self.config['architecture']['learning_rate']
         self.momentum_rate = self.config['architecture']['momentum_rate']
+        self.exponential_decay = self.config['architecture']['exponential_decay']
         self.retrain_layers = self.config['architecture']['retrain_layers']
 
 
@@ -62,7 +63,7 @@ class GUANt(object):
         """ Create GUAN-t on top of AlexNet"""
 
         self.input_node = tf.placeholder(tf.float32, [self.batch_size, self.img_width, self.img_height, self.img_channels], name='input_node')
-        self.label_node = tf.placeholder(tf.uint8, [self.batch_size, self.num_classes], name='label_node')
+        self.label_node = tf.placeholder(tf.float32, [self.batch_size, self.num_classes], name='label_node')
         self.keep_prob = tf.placeholder(tf.float32)
 
         # initialise raw AlexNet
@@ -74,13 +75,31 @@ class GUANt(object):
     def _create_loss(self):
         """ Create Loss"""
 
+        # L2-loss
         if self.config['loss'] == 'l2':
             return tf.nn.l2_loss(tf.subtract(self.network_output, self.label_node))
+        # sparse cross-entropy
         elif self.config['loss'] == 'sparse':
             return tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(labels=self.label_node,
                                                                                  logits=self.network_output))
+        # cross-entropy loss
         elif self.config['loss'] == 'xentropy':
             return tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(labels=self.label_node,
+                                                                          logits=self.network_output))
+        # weighted cross-entropy loss
+        elif self.config['loss'] == 'wxentropy':
+
+            if self.num_classes > 2:
+                raise ValueError(' Weighted loss is only implemented for binary classification (for now).')
+
+            # ratio of positive training samples to total samples
+            weights_ratio = self.config['pos_train_frac']
+
+            # weight training samples based on the distribution of classes in the training data-set
+            class_weights = tf.constant([weights_ratio, 1 - weights_ratio])
+            labels = tf.multiply(self.label_node, class_weights)
+
+            return tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(labels=labels,
                                                                           logits=self.network_output))
         else:
             raise ValueError('Loss "%s" not supported' % self.config['loss'])
@@ -151,7 +170,7 @@ class GUANt(object):
         """ Set-up summaries"""
 
         # loss
-        tf.summary.scalar(self.config['loss'] + '_loss', self.loss)
+        tf.summary.scalar(self.config['loss'] + '_loss', self.loss, collections=['validation'])
 
         # gradients
         var_list = [var for var in tf.trainable_variables() if var.name.split('/')[0] in self.retrain_layers]
@@ -162,14 +181,19 @@ class GUANt(object):
             tf.summary.histogram(var.name[:-2] + '/gradient', gradient)
 
         # accuracy
-        tf.summary.scalar('train_accuracy', self.accuracy_op)
-        tf.summary.scalar('val_accuracy', self.accuracy_op)
+        tf.summary.scalar('train_accuracy', self.accuracy_op, collections=['training_summary'])
+        tf.summary.scalar('val_accuracy', self.accuracy_op, collections=['validation_summary'])
         # error
-        tf.summary.scalar('train_error', self.error_rate_op)
-        tf.summary.scalar('val_error', self.error_rate_op)
+        tf.summary.scalar('train_error', self.error_rate_op, collections=['training'])
+        tf.summary.scalar('val_error', self.error_rate_op, collections=['validation'])
 
-        self.merged_summaries = tf.summary.merge_all()
-        self.summariser = tf.summary.FileWriter(self.summary_dir)
+        self.merged_train_summaries = tf.summary.merge_all('training_summary')
+        self.merged_val_summaries = tf.summary.merge_all('validation_summary')
+
+        # make summary directory
+        current_summary_path = os.path.join(self.summary_dir, self.model_timestamp)
+        os.mkdir(current_summary_path)
+        self.summariser = tf.summary.FileWriter(current_summary_path)
 
 
     def _open_session(self):
@@ -231,6 +255,18 @@ class GUANt(object):
     def optimise(self, weights_init='pre_trained'):
         """ Initialise training routine and optimise"""
 
+        # setup common filename and logging
+        self.model_timestamp = '{:%y-%m-%d-%H:%M:%S}'.format(datetime.now())
+        model_dir_name = self.model_timestamp                                        # directory for current model
+
+        self._model_dir = os.path.join(self.checkpoint_dir, model_dir_name)
+        self._log_dir = os.path.join(self._model_dir, 'logs')
+
+        os.mkdir(self._model_dir)
+        os.mkdir(self._log_dir)
+        file_handler = logging.FileHandler(os.path.join(self._log_dir, 'training_log.log'))
+        logging.getLogger().addHandler(file_handler)
+
         # try:
         # create loss
         with tf.name_scope('loss'):
@@ -265,22 +301,34 @@ class GUANt(object):
         else:
             self._init_weights()
 
-        # TODO: add graph to summary
-
         # init variables
         self.sess.run(tf.global_variables_initializer())
+
+        # add graph to summary
+        self.summariser.add_graph(self.sess.graph)
+
+        # log info about training
+        logging.info('------------------------------------------------')
+        logging.info('Number of Classes: %s' % str(self.num_classes))
+        logging.info('Loss: %s' % self.config['loss'])
+        logging.info('Optimiser: %s' % self.config['optimiser'])
+        logging.info('Training layers: %s' % str(self.retrain_layers))
+        logging.info('Dataset Directory: %s' % str(self.dataset_dir))
+        logging.info('Fraction of Dataset Used: %s' % str(self.config['data_used_fraction']))
+        logging.info('Batch Size: %s' % str(self.batch_size))
+        logging.info('Learning Rate: %s' % str(self.learning_rate))
+        logging.info('Learning Rate Exponential Decay: %s'% str(bool(int(self.exponential_decay))))
+        logging.info('Momentum Rate: %s' % str(self.momentum_rate))
+        logging.info('------------------------------------------------')
 
         # total training steps
         step = 0
 
-        # Directory for current model
-        model_dir = '{:%y-%m-%d-%H:%M:%S}'.format(datetime.now())
-
         # iterate over training epochs
-        for epoch in xrange(self.config['num_epochs']):
+        for epoch in xrange(1, self.config['num_epochs'] + 1):
 
             # iterate over all batches
-            for batch in xrange(batches_per_epoch):
+            for batch in xrange(1, batches_per_epoch + 1):
 
                 # load next training batch
                 input_batch, label_batch = self.loader.get_next_batch()
@@ -302,7 +350,7 @@ class GUANt(object):
                 # ---------------------------------
                 # 2. validate
                 # ---------------------------------
-                if (batch + 1) % self.val_frequency == 0:
+                if batch % self.val_frequency == 0:
 
                     # get data
                     input_batch, label_batch = self.loader.get_next_val_batch()
@@ -310,11 +358,11 @@ class GUANt(object):
 
                     logging.info('------------------------------------------------')
                     logging.info(self.get_date_time() + ': Validating Network ... ')
-                    logging.info(self.get_date_time() + ': epoch = %d, batch = %d, accuracy = %.3f' % (epoch, batch, self.val_accuracy))
+                    logging.info(self.get_date_time() + ': epoch = %d, batch = %d, validation accuracy = %.3f' % (epoch, batch, self.val_accuracy))
                     logging.info('------------------------------------------------')
 
                     # log summaries
-                    summary = self.sess.run(self.merged_summaries, feed_dict=feed_dict)
+                    summary = self.sess.run(self.merged_val_summaries, feed_dict=feed_dict)
                     self.summariser.add_summary(summary, step)
 
                 # log
@@ -322,18 +370,18 @@ class GUANt(object):
                     logging.info(self.get_date_time() + ': epoch = %d, batch = %d, accuracy = %.3f' % (epoch, batch, self.train_accuracy))
 
                     # log summaries
-                    summary = self.sess.run(self.merged_summaries, feed_dict=feed_dict)
+                    summary = self.sess.run(self.merged_train_summaries, feed_dict=feed_dict)
                     self.summariser.add_summary(summary, step)
 
                 # save
-                if (batch + 1) % self.save_frequency == 0:
-                    checkpoint_path = os.path.join(self.checkpoint_dir, model_dir, 'model%d.ckpt' % step)
+                if batch % self.save_frequency == 0:
+                    checkpoint_path = os.path.join(self.checkpoint_dir, model_dir_name, 'model%d.ckpt' % (step + 1))
                     logging.info('------------------------------------------------')
                     logging.info(self.get_date_time() + ': epoch = %d, batch = %d, accuracy = %.3f' % (epoch, batch, self.train_accuracy))
                     logging.info(self.get_date_time() + ': Saving model as %s' % checkpoint_path)
                     logging.info('------------------------------------------------')
 
-                    latest_checkpoint_path = os.path.join(self.checkpoint_dir, model_dir, 'model.ckpt')        # save a copy of the latest model
+                    latest_checkpoint_path = os.path.join(self.checkpoint_dir, model_dir_name, 'model.ckpt')        # save a copy of the latest model
                     self.saver.save(self.sess, checkpoint_path)
                     self.saver.save(self.sess, latest_checkpoint_path)
 

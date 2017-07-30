@@ -9,7 +9,7 @@ dataset_config: /home/noorvir/catkin_ws/src/grasp_ucl/cfg/datasets.yaml
 pt_weights_filename: /home/noorvir/tf_models/AlexNet/bvlc_alexnet.npy
 
 # Training parameters
-queue_capacity: 100                     # TODO
+queue_capacity: 1000                     # TODO
 num_epochs: 20
 batch_size: 150
 optimiser: adam                         # adam, momentum or rmsprop

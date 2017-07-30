@@ -1,7 +1,7 @@
 # Directories
-dataset_dir: /home/noorvir/datasets/gqcnn/test/
+dataset_dir: /home/noorvir/datasets/gqcnn/dexnet_mini_ucl/
 cache_dir: /home/noorvir/datasets/gqcnn/cache/
-summary_dir: /home/noorvir/datasets/
+summary_dir: /home/noorvir/tf_models/GUAN-t/summaries/
 checkpoint_dir: /home/noorvir/tf_models/GUAN-t/checkpoints/
 model_dir: /home/noorvir/tf_models/GUAN-t/pre_trained/         # path to trained GUAN-t model
 
@@ -9,17 +9,17 @@ dataset_config: /home/noorvir/catkin_ws/src/grasp_ucl/cfg/datasets.yaml
 pt_weights_filename: /home/noorvir/tf_models/AlexNet/bvlc_alexnet.npy
 
 # Training parameters
-queue_capacity: 100                     # TODO
+queue_capacity: 1000                     # TODO
 num_epochs: 20
 batch_size: 150
 optimiser: adam                         # adam, momentum or rmsprop
-loss: wxentropy                         # l2, xentropy, wxentropy, or sparse
+loss: xentropy                         # l2, xentropy, wxentropy, or sparse
 pos_train_frac: 0.1                     # fraction of positive training samples (only valid for binary classification)
 val_frequency: 100                     # steps
 log_frequency: 10
 save_frequency: 500
 
-data_used_fraction: 0.10                  # fraction of the total training data to use
+data_used_fraction: 1.0                  # fraction of the total training data to use
 train_frac: 0.8                         # fraction of data to use for training vs validation
 
 
@@ -28,8 +28,10 @@ architecture:
   img_width: 227
   img_height: 227
   img_channels: 3
-  num_classes: 2                        # 2 for binary 6 for quality
+  num_classes: 6                        # 2 for binary 6 for quality
   retrain_layers:                       # layers of AlexNet to retrain
+    - conv3
+    - conv4
     - conv5
     - fc6
     - fc7
@@ -37,5 +39,5 @@ architecture:
   skipped_layers:                       # layers of AlexNet to discard
     -
   momentum_rate: 0.001
-  learning_rate: 0.001                  # TODO
+  learning_rate: 0.005                  # TODO
   exponential_decay: 0                  # use learning-rate decay - 0 or 1

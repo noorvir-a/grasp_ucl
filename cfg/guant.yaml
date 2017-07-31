@@ -1,7 +1,7 @@
 # Directories
 dataset_dir: /home/noorvir/datasets/gqcnn/test/
 cache_dir: /home/noorvir/datasets/gqcnn/cache/
-summary_dir: /home/noorvir/datasets/
+summary_dir: /home/noorvir/tf_models/GUAN-t/summaries/
 checkpoint_dir: /home/noorvir/tf_models/GUAN-t/checkpoints/
 model_dir: /home/noorvir/tf_models/GUAN-t/pre_trained/         # path to trained GUAN-t model
 
@@ -9,7 +9,7 @@ dataset_config: /home/noorvir/catkin_ws/src/grasp_ucl/cfg/datasets.yaml
 pt_weights_filename: /home/noorvir/tf_models/AlexNet/bvlc_alexnet.npy
 
 # Training parameters
-queue_capacity: 1000                     # TODO
+queue_capacity: 20                     # TODO
 num_epochs: 20
 batch_size: 150
 optimiser: adam                         # adam, momentum or rmsprop
@@ -30,6 +30,10 @@ architecture:
   img_channels: 3
   num_classes: 2                        # 2 for binary 6 for quality
   retrain_layers:                       # layers of AlexNet to retrain
+    - conv1
+    - conv2
+    - conv3
+    - conv4
     - conv5
     - fc6
     - fc7

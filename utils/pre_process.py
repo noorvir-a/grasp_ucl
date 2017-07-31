@@ -14,6 +14,7 @@ Grasp Metrics." Robotics, Science, and Systems, 2017. Cambridge, MA.
 import numpy as np
 import pickle as pkl
 import logging
+import time
 import os
 
 
@@ -30,14 +31,14 @@ class DataLoader(object):
         self.config = config
 
         # initialise buffers to store data from loaded file
-        img_shape = [0, self._network.img_width, self._network.img_height, self._network.img_channels]
-        label_shape = [0, self._network.num_classes]
-        self.img_data_buffer = np.empty(img_shape)
-        self.label_data_buffer = np.empty(label_shape)
+        self.img_shape = [0, self._network.img_width, self._network.img_height, self._network.img_channels]
+        self.label_shape = [0, self._network.num_classes]
+        self.img_data_buffer = np.empty(self.img_shape)
+        self.label_data_buffer = np.empty(self.label_shape)
 
         # val buffer TODO: merge these with img_data_buffer
-        self.img_val_data_buffer = np.empty(img_shape)
-        self.label_val_data_buffer = np.empty(label_shape)
+        self.img_val_data_buffer = np.empty(self.img_shape)
+        self.label_val_data_buffer = np.empty(self.label_shape)
 
         # init methods
         self._setup_config()
@@ -221,45 +222,43 @@ class DataLoader(object):
     def load_and_enqueue(self):
         """ Load the next batch of data and enqueue"""
 
-        # if the buffer length is smaller than batch size, load next file
-        while len(self.img_data_buffer) < self._network.batch_size:
-            # load next file
+        while True:
 
-            file_id = np.random.choice(len(self.img_filenames), size=1)[0]
-            img_filename = self.img_filenames[file_id]
-            label_filename = self.label_filenames[file_id]
+            time.sleep(0.001)
+            img_batch = np.empty(self.img_shape)
+            label_batch = np.empty(self.label_shape)
 
-            # create file-paths
-            img_file_path = os.path.join(self._network.dataset_dir, img_filename)
-            label_file_path = os.path.join(self._network.dataset_dir, label_filename)
+            # if the buffer length is smaller than batch size, load next file
+            while len(img_batch) < self._network.batch_size:
+                # load next file
 
-            # load new data
-            # TODO: Convert labels to binary
-            img_data = np.load(img_file_path)['arr_0']
-            label_data = np.load(label_file_path)['arr_0']
+                file_id = np.random.choice(len(self.img_filenames), size=1)[0]
+                img_filename = self.img_filenames[file_id]
+                label_filename = self.label_filenames[file_id]
 
-            # get data-point indices assigned for training
-            train_idx = self.train_index_map[img_filename]
-            np.random.shuffle(train_idx)
+                # create file-paths
+                img_file_path = os.path.join(self._network.dataset_dir, img_filename)
+                label_file_path = os.path.join(self._network.dataset_dir, label_filename)
 
-            # remove validation data-points
-            img_data = img_data[train_idx]
-            label_data = label_data[train_idx]
+                # load new data
+                # TODO: Convert labels to binary
+                img_data = np.load(img_file_path)['arr_0']
+                label_data = np.load(label_file_path)['arr_0']
 
-            # copy first channel into all three (for compatibility with AlexNet)
-            img_data = np.repeat(img_data, self._network.img_channels, axis=self._network.img_channels)
+                # get data-point indices assigned for training
+                train_idx = self.train_index_map[img_filename]
+                np.random.shuffle(train_idx)
 
-            # add new data to buffers
-            self.img_data_buffer = np.concatenate((self.img_data_buffer, img_data), axis=0)
-            self.label_data_buffer = np.concatenate((self.label_data_buffer, label_data), axis=0)
+                # remove validation data-points
+                img_data = img_data[train_idx]
+                label_data = label_data[train_idx]
 
-        img_batch = self.img_data_buffer[:self._network.batch_size]
-        label_batch = self.label_data_buffer[:self._network.batch_size]
+                # copy first channel into all three (for compatibility with AlexNet)
+                img_data = np.repeat(img_data, self._network.img_channels, axis=self._network.img_channels)
 
-        # remove batch from buffers
-        self.img_data_buffer = np.delete(self.img_data_buffer, np.s_[:self._network.batch_size], axis=0)
-        self.label_data_buffer = np.delete(self.label_data_buffer, np.s_[:self._network.batch_size], axis=0)
+                img_batch = img_data[:self._network.batch_size]
+                label_batch = label_data[:self._network.batch_size]
 
 
-        self._network.sess.run(self._network.enqueue_op, feed_dict={self._network.img_queue_batch: img_batch,
-                                                                    self._network.label_queue_batch: label_batch})
+            self._network.sess.run(self._network.enqueue_op, feed_dict={self._network.img_queue_batch: img_batch,
+                                                                        self._network.label_queue_batch: label_batch})

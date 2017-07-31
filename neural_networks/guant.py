@@ -317,9 +317,8 @@ class GUANt(object):
         logging.info('Momentum Rate: %s' % str(self.momentum_rate))
         logging.info('------------------------------------------------')
 
-
-        # start thread to load data asynchronously
-        self.data_thread = threading.Thread(target=self.loader.load_and_enqueue())
+        # use threads to load data asynchronously
+        self.data_thread = threading.Thread(target=self.loader.load_and_enqueue)
         self.data_thread.start()
 
         # total training steps

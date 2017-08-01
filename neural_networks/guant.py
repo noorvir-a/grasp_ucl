@@ -29,6 +29,7 @@ class GUANt(object):
         self._sess = None
         # keep track of whether TensorFlow train/test ops have been initialised
         self._tensorflow_initialised = False
+        self._pred_network_initialised = False
         self._graph = tf.get_default_graph()
 
 
@@ -60,15 +61,11 @@ class GUANt(object):
         self.retrain_layers = self.config['architecture']['retrain_layers']
 
 
-    def create_network(self, input_data):
+    def create_network(self, input_data, keep_prob):
         """ Create GUAN-t on top of AlexNet"""
 
-        # self.input_node = tf.placeholder(tf.float32, [self.batch_size, self.img_width, self.img_height, self.img_channels], name='input_node')
-        # self.label_node = tf.placeholder(tf.float32, [self.batch_size, self.num_classes], name='label_node')
-        self.keep_prob = tf.placeholder(tf.float32)
-
         # initialise raw AlexNet
-        alexnet = AlexNet(input_data, self.keep_prob, self.num_classes, retrain_layers=self.retrain_layers)
+        alexnet = AlexNet(input_data, keep_prob, self.num_classes, retrain_layers=self.retrain_layers)
 
         # network output
         return alexnet.layers['fc8']
@@ -184,10 +181,14 @@ class GUANt(object):
 
         # accuracy
         tf.summary.scalar('train_accuracy', self.accuracy_op, collections=['training_summary'])
-        tf.summary.scalar('val_accuracy', self.accuracy_op, collections=['validation_summary'])
+        tf.summary.scalar('val_accuracy', self._pred_accuracy_op, collections=['validation_summary'])
         # error
         tf.summary.scalar('train_error', self.error_rate_op, collections=['training_summary'])
-        tf.summary.scalar('val_error', self.error_rate_op, collections=['validation_summary'])
+        tf.summary.scalar('val_error', self._pred_error_rate_op, collections=['validation_summary'])
+        # predicted labels
+        # tf.summary.text('predicted_labels', self._pred_predicted_labels, collections=['validation_summary'])
+        # tf.summary.scalar('ground_truth_labels', self._pred_label_node, collections=['validation_summary'])
+
 
         self.merged_train_summaries = tf.summary.merge_all('training_summary')
         self.merged_val_summaries = tf.summary.merge_all('validation_summary')
@@ -274,7 +275,14 @@ class GUANt(object):
 
         # initialise TensorFlow variables
         self._init_tensorflow()
-        self.network_output = self.create_network(self.input_node)
+        # with tf.variable_scope('training_network'):
+        #     tf.get_variable_scope().reuse_variables()
+        self.keep_prob = tf.placeholder(tf.float32, name='drop_out_keep_prob')
+
+        self.network_output = self.create_network(self.input_node, self.keep_prob)
+
+        # init validation network
+        self._get_predition_network()
 
         # metrics
         self._init_metric_ops()
@@ -352,7 +360,6 @@ class GUANt(object):
                 # feed_dict = {self.input_node: input_batch, self.label_node: label_batch, self.keep_prob: 0.5}
                 feed_dict = {self.keep_prob: 0.5}
                 # run
-                # run_op_outupt = self.sess.run(run_vars, feed_dict=feed_dict)
                 run_op_outupt = self.sess.run(run_vars, feed_dict=feed_dict)
                 # outputs of run op
                 _, loss, self.train_accuracy, output, prediction_outcome, _, _ = run_op_outupt
@@ -365,15 +372,17 @@ class GUANt(object):
 
                     # get data
                     input_batch, label_batch = self.loader.get_next_val_batch()
-                    self.val_accuracy, _, _ = self.predict(input_batch, label_batch)
+                    val_accuracy, val_error, _ = self.predict(input_batch, label_batch)
 
                     logging.info('------------------------------------------------')
                     logging.info(self.get_date_time() + ': Validating Network ... ')
-                    logging.info(self.get_date_time() + ': epoch = %d, batch = %d, validation accuracy = %.3f' % (epoch, batch, self.val_accuracy))
+                    logging.info(self.get_date_time() + ': epoch = %d, batch = %d, validation accuracy = %.3f' % (epoch, batch, val_accuracy))
                     logging.info('------------------------------------------------')
 
                     # log summaries
-                    summary = self.sess.run(self.merged_val_summaries, feed_dict=feed_dict)
+                    summary = self.sess.run(self.merged_val_summaries, feed_dict={self.keep_prob: 0.5,
+                                                                                  self._pred_input_node: input_batch,
+                                                                                  self._pred_label_node: label_batch})
                     self.summariser.add_summary(summary, step)
 
                 # log
@@ -406,46 +415,70 @@ class GUANt(object):
         #     self.sess.close()
 
 
-    def predict(self, input_batch, label_batch, model_path):
-        """ Predict """
+    def _get_predition_network(self):
+        """ Create network to use for prediction. Uses the same graph but a different method of inputing data"""
 
         with self._graph.as_default():
 
-            saver = tf.train.Saver()
+            # create prediction graph
+            self._pred_input_node = tf.placeholder(tf.float32, [self.batch_size, self.img_width, self.img_height, self.img_channels],
+                                                   name='prediction_input_node')
+            self._pred_label_node = tf.placeholder(tf.float32, [self.batch_size, self.num_classes], name='ground_truth_labels')
+
+            # with tf.variable_scope('training_network'):
+            with tf.name_scope('prediction_network'):
+                with tf.variable_scope(tf.get_variable_scope(), reuse=True):
+                    self._pred_network_output = self.create_network(self._pred_input_node, self.keep_prob)
+
+            # metric operations
+            with tf.name_scope('prediction_operations'):
+
+                prediction_outcome = tf.equal(tf.argmax(self._pred_network_output, axis=1),
+                                              tf.argmax(self._pred_label_node, axis=1), name='prediction_outcome')
+                # predicted labels
+                self._pred_predicted_labels = tf.argmax(self._pred_network_output, axis=1)
+                # accuracy
+                self._pred_accuracy_op = tf.reduce_mean(tf.cast(prediction_outcome, tf.float32), name='accuracy_op')
+                # error
+                self._pred_error_rate_op = tf.subtract(1.0, self._pred_accuracy_op)
+
+        self._pred_network_initialised = True
+
+
+    def predict(self, input_batch, label_batch, model_path=None):
+        """ Predict """
+
+        with self._graph.as_default():
 
             # init TensorFlow Session
             if not self._tensorflow_initialised:
                 self._init_tensorflow()
 
-            with tf.name_scope('prediction'):
-                input_node = tf.placeholder(tf.float32, [None, self.img_width, self.img_height, self.img_channels], name='input_node')
-                label_node = tf.placeholder(tf.float32, [None, self.num_classes], name='label_node')
-                network_output = self.create_network(input_node)
+            close_sess = False
+            if self._sess is None:
+                close_sess = True
+                self._open_session()
 
-                # metrics
-                # setup accuracy
-                with tf.name_scope('accuracy_op'):
-                    predicted_labels = tf.argmax(network_output, axis=1, name='predicted_label')
-                    prediction_outcomes = tf.equal(tf.argmax(network_output, axis=1), tf.argmax(label_node, axis=1), name='prediction_outcome')
-                    accuracy_op = tf.reduce_mean(tf.cast(prediction_outcomes, tf.float32), name='accuracy_op')
-
-                with tf.name_scope('error_rate'):
-                    error_rate_op = tf.subtract(1.0, accuracy_op)
-
+            # initialise prediction network
+            if not self._pred_network_initialised:
+                self._get_predition_network()
 
             # load model
-            saver.restore(self.sess, model_path)
-
-            # create histogram of prediction
+            if model_path is not None:
+                saver = tf.train.Saver()
+                saver.restore(self.sess, model_path)
 
             # variables to run
-            run_vars = [accuracy_op, error_rate_op, network_output, prediction_outcomes, predicted_labels]
-            feed_dict = {input_node: input_batch, label_node: label_batch, self.keep_prob: 0.5}
+            run_vars = [self._pred_accuracy_op, self._pred_error_rate_op, self._pred_network_output, self._pred_predicted_labels]
+            feed_dict = {self._pred_input_node: input_batch, self._pred_label_node: label_batch, self.keep_prob: 0.5}
             # run
             run_op_outupt = self.sess.run(run_vars, feed_dict=feed_dict)
             # outputs of run op
-            accuracy, error, output, prediction_outcomes, predicted_labels = run_op_outupt
+            accuracy, error, output, predicted_labels = run_op_outupt
 
+            if close_sess:
+                self.sess.close()
+                self._sess = None
 
         return accuracy, error, predicted_labels
 
@@ -479,26 +512,26 @@ if __name__ == '__main__':
     # 2. Test
     ####################
     # store metrics over multiple trails in lists
-    accuracy_list = []
-    error_list = []
-    gt_labels_list = []
-    predicted_labels_list = []
-
-    test_data_loader = DataLoader(guant, guant_config['dataset_config'])
-    num_test_trials = 20
-
-    for trial in xrange(num_test_trials):
-
-        test_input_batch, test_label_batch = test_data_loader.get_next_batch()
-        accuracy, error, predicted_labels = guant.predict(test_input_batch, test_label_batch, '/home/noorvir/tf_models/GUAN-t/pre_trained/')
-
-        accuracy_list.append(accuracy)
-        error_list.append(error)
-        gt_labels_list.append(test_label_batch)
-        predicted_labels_list.append(predicted_labels)
-
-    label_batch_pd = pandas.Series(gt_labels_list, name='Actual')
-    predicted_labels_pd = pandas.Series(predicted_labels_list, name='Predicted')
-
-    confusion_mat = pandas.crosstab(label_batch_pd, predicted_labels_pd, rownames=['Actual'], colnames=['Predicted'],  margins=True)
+    # accuracy_list = []
+    # error_list = []
+    # gt_labels_list = []
+    # predicted_labels_list = []
+    #
+    # test_data_loader = DataLoader(guant, guant_config['dataset_config'])
+    # num_test_trials = 20
+    #
+    # for trial in xrange(num_test_trials):
+    #
+    #     test_input_batch, test_label_batch = test_data_loader.get_next_batch()
+    #     accuracy, error, predicted_labels = guant.predict(test_input_batch, test_label_batch, '/home/noorvir/tf_models/GUAN-t/pre_trained/')
+    #
+    #     accuracy_list.append(accuracy)
+    #     error_list.append(error)
+    #     gt_labels_list.append(test_label_batch)
+    #     predicted_labels_list.append(predicted_labels)
+    #
+    # label_batch_pd = pandas.Series(gt_labels_list, name='Actual')
+    # predicted_labels_pd = pandas.Series(predicted_labels_list, name='Predicted')
+    #
+    # confusion_mat = pandas.crosstab(label_batch_pd, predicted_labels_pd, rownames=['Actual'], colnames=['Predicted'],  margins=True)
 

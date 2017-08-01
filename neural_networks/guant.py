@@ -4,6 +4,7 @@ from autolab_core import YamlConfig
 from datetime import datetime
 import tensorflow as tf
 import numpy as np
+import pickle as pkl
 import logging
 import threading
 import pandas
@@ -44,6 +45,10 @@ class GUANt(object):
         self.pt_weights_file = self.config['pt_weights_filename']
         self.dataset_name = self.config['dataset_name']
 
+        # data params
+        self.metric_sample_size = self.config['metric_sample_size']
+        self.data_metrics_filename = self.config['data_metics_filename']
+
         # training params
         self.val_frequency = self.config['val_frequency']
         self.log_frequency = self.config['log_frequency']
@@ -61,15 +66,42 @@ class GUANt(object):
         self.exponential_decay = self.config['architecture']['exponential_decay']
         self.retrain_layers = self.config['architecture']['retrain_layers']
 
+    def _get_data_metrics(self):
+        """ Get metrics on training data """
 
-    def create_network(self, input_data):
-        """ Create GUAN-t on top of AlexNet"""
+        data_metrics_path = os.path.join(self.cache_dir, self.data_metrics_filename)
 
-        # initialise raw AlexNet
-        alexnet = AlexNet(input_data, self.num_classes, retrain_layers=self.retrain_layers)
+        if os.path.exists(data_metrics_path):
 
-        # network output
-        return alexnet.layers['fc8']
+            data = pkl.load(data_metrics_path)
+
+            self.img_mean = data['img_mean']
+            self.img_stdev = data['img_stdev']
+
+        else:
+            num_sample_files = min(self.metric_sample_size, len(self.loader.img_filenames))
+            img_filenames = np.random.choice(self.loader.img_filenames, num_sample_files, replace=False)
+
+            img_sum = 0
+            num_imgs = 0
+            # compute image mean
+            for img_file in img_filenames:
+                imgs = np.load(os.path.join(self.dataset_dir, img_file))['arr_0']
+                img_sum += np.sum(imgs)
+                num_imgs += np.shape(imgs)[0]
+
+            self.img_mean = img_sum/float(num_imgs * self.img_width * self.img_height)
+
+            img_sum = 0
+            # compute image standard-deviation
+            for img_file in img_filenames:
+                imgs = np.load(os.path.join(self.dataset_dir, img_file))['arr_0']
+                img_sum += np.sum((imgs - self.img_mean)**2)
+
+            self.img_stdev = np.sqrt(img_sum/float(num_imgs * self.img_width * self.img_height))
+
+            data = {'img_mean': self.img_mean, 'img_stdev': self.img_stdev}
+            pkl.dump(data_metrics_path, data)
 
 
     def _create_loss(self):
@@ -257,6 +289,46 @@ class GUANt(object):
         os.system('tensorboard --logdir=' + self.summary_dir + " &>/dev/null &")
 
 
+    def _get_predition_network(self):
+        """ Create network to use for prediction. Uses the same graph but a different method of inputing data"""
+
+        with self._graph.as_default():
+
+            # create prediction graph
+            self._pred_input_node = tf.placeholder(tf.float32, [self.batch_size, self.img_width, self.img_height, self.img_channels],
+                                                   name='prediction_input_node')
+            self._pred_label_node = tf.placeholder(tf.float32, [self.batch_size, self.num_classes], name='ground_truth_labels')
+
+            # with tf.variable_scope('training_network'):
+            with tf.name_scope('prediction_network'):
+                with tf.variable_scope(tf.get_variable_scope(), reuse=True):
+                    self._pred_network_output = self.create_network(self._pred_input_node)
+
+            # metric operations
+            with tf.name_scope('prediction_operations'):
+
+                prediction_outcome = tf.equal(tf.argmax(self._pred_network_output, axis=1),
+                                              tf.argmax(self._pred_label_node, axis=1), name='prediction_outcome')
+                # predicted labels
+                self._pred_predicted_labels = tf.argmax(self._pred_network_output, axis=1)
+                # accuracy
+                self._pred_accuracy_op = tf.reduce_mean(tf.cast(prediction_outcome, tf.float32), name='accuracy_op')
+                # error
+                self._pred_error_rate_op = tf.subtract(1.0, self._pred_accuracy_op)
+
+        self._pred_network_initialised = True
+
+
+    def create_network(self, input_data):
+        """ Create GUAN-t on top of AlexNet"""
+
+        # initialise raw AlexNet
+        alexnet = AlexNet(input_data, self.num_classes, retrain_layers=self.retrain_layers)
+
+        # network output
+        return alexnet.layers['fc8']
+
+
     def optimise(self, weights_init='pre_trained'):
         """ Initialise training routine and optimise"""
 
@@ -279,6 +351,8 @@ class GUANt(object):
         # with tf.variable_scope('training_network'):
         #     tf.get_variable_scope().reuse_variables()
         # self.keep_prob = tf.placeholder(tf.float32, name='drop_out_keep_prob')
+
+        self._get_data_metrics()
 
         self.network_output = self.create_network(self.input_node)
 
@@ -413,36 +487,6 @@ class GUANt(object):
         #     self._close_tensorboard()
         #     # close TensorFlow Session
         #     self.sess.close()
-
-
-    def _get_predition_network(self):
-        """ Create network to use for prediction. Uses the same graph but a different method of inputing data"""
-
-        with self._graph.as_default():
-
-            # create prediction graph
-            self._pred_input_node = tf.placeholder(tf.float32, [self.batch_size, self.img_width, self.img_height, self.img_channels],
-                                                   name='prediction_input_node')
-            self._pred_label_node = tf.placeholder(tf.float32, [self.batch_size, self.num_classes], name='ground_truth_labels')
-
-            # with tf.variable_scope('training_network'):
-            with tf.name_scope('prediction_network'):
-                with tf.variable_scope(tf.get_variable_scope(), reuse=True):
-                    self._pred_network_output = self.create_network(self._pred_input_node)
-
-            # metric operations
-            with tf.name_scope('prediction_operations'):
-
-                prediction_outcome = tf.equal(tf.argmax(self._pred_network_output, axis=1),
-                                              tf.argmax(self._pred_label_node, axis=1), name='prediction_outcome')
-                # predicted labels
-                self._pred_predicted_labels = tf.argmax(self._pred_network_output, axis=1)
-                # accuracy
-                self._pred_accuracy_op = tf.reduce_mean(tf.cast(prediction_outcome, tf.float32), name='accuracy_op')
-                # error
-                self._pred_error_rate_op = tf.subtract(1.0, self._pred_accuracy_op)
-
-        self._pred_network_initialised = True
 
 
     def predict(self, input_batch, label_batch, model_path=None):

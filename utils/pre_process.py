@@ -261,7 +261,7 @@ class DataLoader(object):
                 np.random.shuffle(train_idx)
 
                 # remove validation data-points
-                img_data = img_data[train_idx]
+                img_data = (img_data[train_idx] - self._network.img_mean)/self._network.img_stdev
                 label_data = label_data[train_idx]
 
                 # copy first channel into all three (for compatibility with AlexNet)

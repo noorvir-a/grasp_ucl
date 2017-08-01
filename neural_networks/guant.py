@@ -42,6 +42,7 @@ class GUANt(object):
         self.summary_dir = self.config['summary_dir']
         self.checkpoint_dir = self.config['checkpoint_dir']
         self.pt_weights_file = self.config['pt_weights_filename']
+        self.dataset_name = self.config['dataset_name']
 
         # training params
         self.val_frequency = self.config['val_frequency']
@@ -61,11 +62,11 @@ class GUANt(object):
         self.retrain_layers = self.config['architecture']['retrain_layers']
 
 
-    def create_network(self, input_data, keep_prob):
+    def create_network(self, input_data):
         """ Create GUAN-t on top of AlexNet"""
 
         # initialise raw AlexNet
-        alexnet = AlexNet(input_data, keep_prob, self.num_classes, retrain_layers=self.retrain_layers)
+        alexnet = AlexNet(input_data, self.num_classes, retrain_layers=self.retrain_layers)
 
         # network output
         return alexnet.layers['fc8']
@@ -277,9 +278,9 @@ class GUANt(object):
         self._init_tensorflow()
         # with tf.variable_scope('training_network'):
         #     tf.get_variable_scope().reuse_variables()
-        self.keep_prob = tf.placeholder(tf.float32, name='drop_out_keep_prob')
+        # self.keep_prob = tf.placeholder(tf.float32, name='drop_out_keep_prob')
 
-        self.network_output = self.create_network(self.input_node, self.keep_prob)
+        self.network_output = self.create_network(self.input_node)
 
         # init validation network
         self._get_predition_network()
@@ -358,9 +359,9 @@ class GUANt(object):
                             self.label_node]
                 # variables to feed into the graph TODO: change keep-prob for dropout
                 # feed_dict = {self.input_node: input_batch, self.label_node: label_batch, self.keep_prob: 0.5}
-                feed_dict = {self.keep_prob: 0.5}
+                # feed_dict = {self.keep_prob: 0.5}
                 # run
-                run_op_outupt = self.sess.run(run_vars, feed_dict=feed_dict)
+                run_op_outupt = self.sess.run(run_vars)
                 # outputs of run op
                 _, loss, self.train_accuracy, output, prediction_outcome, _, _ = run_op_outupt
 
@@ -380,8 +381,7 @@ class GUANt(object):
                     logging.info('------------------------------------------------')
 
                     # log summaries
-                    summary = self.sess.run(self.merged_val_summaries, feed_dict={self.keep_prob: 0.5,
-                                                                                  self._pred_input_node: input_batch,
+                    summary = self.sess.run(self.merged_val_summaries, feed_dict={self._pred_input_node: input_batch,
                                                                                   self._pred_label_node: label_batch})
                     self.summariser.add_summary(summary, step)
 
@@ -390,7 +390,7 @@ class GUANt(object):
                     logging.info(self.get_date_time() + ': epoch = %d, batch = %d, accuracy = %.3f' % (epoch, batch, self.train_accuracy))
 
                     # log summaries
-                    summary = self.sess.run(self.merged_train_summaries, feed_dict=feed_dict)
+                    summary = self.sess.run(self.merged_train_summaries)
                     self.summariser.add_summary(summary, step)
 
                 # save
@@ -428,7 +428,7 @@ class GUANt(object):
             # with tf.variable_scope('training_network'):
             with tf.name_scope('prediction_network'):
                 with tf.variable_scope(tf.get_variable_scope(), reuse=True):
-                    self._pred_network_output = self.create_network(self._pred_input_node, self.keep_prob)
+                    self._pred_network_output = self.create_network(self._pred_input_node)
 
             # metric operations
             with tf.name_scope('prediction_operations'):
@@ -470,7 +470,7 @@ class GUANt(object):
 
             # variables to run
             run_vars = [self._pred_accuracy_op, self._pred_error_rate_op, self._pred_network_output, self._pred_predicted_labels]
-            feed_dict = {self._pred_input_node: input_batch, self._pred_label_node: label_batch, self.keep_prob: 0.5}
+            feed_dict = {self._pred_input_node: input_batch, self._pred_label_node: label_batch}
             # run
             run_op_outupt = self.sess.run(run_vars, feed_dict=feed_dict)
             # outputs of run op

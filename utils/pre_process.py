@@ -58,57 +58,61 @@ class DataLoader(object):
     def _setup_filenames(self):
         """ Load file names from data-set and randomly select a pre-set fraction to train on """
 
-        # read all data filenames
-        all_filenames = os.listdir(self._network.dataset_dir)
-
-        # get image files
-        self.img_filenames = [f for f in all_filenames if f.find(self.filename_templates['depth_imgs']) > -1]
-        # get pose files
-        # self.pose_filenames = [f for f in all_filenames if f.find(ImageFileTemplates.hand_poses_template) > -1]
-        # get label files
-        self.label_filenames = [f for f in all_filenames if f.find(self.filename_templates['labels']) > -1]
-
-        self.img_filenames.sort(key=lambda x: int(x[-9:-4]))
-        # self.pose_filenames.sort(key=lambda x: int(x[-9:-4]))
-        self.label_filenames.sort(key=lambda x: int(x[-9:-4]))
-
-        # randomly choose files for training and validation
-        num_files = len(self.img_filenames)
-        num_files_used = int(self.data_used_fraction * num_files)
-        filename_indices = np.random.choice(num_files, size=num_files_used, replace=False)
-        filename_indices.sort()
-
-        self.img_filenames = [self.img_filenames[k] for k in filename_indices]
-        # self.pose_filenames = [self.pose_filenames[k] for k in filename_indices]
-        self.label_filenames = [self.label_filenames[k] for k in filename_indices]
-
-        # create copy of image filenames to allow for parallel accessing
-        self.img_filenames_copy = self.img_filenames[:]
-
-        # shuffle data and create map from indices to datapoints
-
-        # get total number of training datapoints
-        num_datapoints = self.images_per_file * num_files
-        self.num_train = int(self.train_fraction * num_datapoints)
-
-        # get training and validation indices
-        all_indices = np.arange(num_datapoints)
-        np.random.shuffle(all_indices)
-        train_indices = np.sort(all_indices[:self.num_train])
-        val_indices = np.sort(all_indices[self.num_train:])
-
         # filename for index map
-        train_map_name = 'train_indices_map_' + '{:.2f}'.format(self.data_used_fraction).replace('.', '_') + '.pkl'
-        val_map_name = 'train_indices_map_' + '{:.2f}'.format(self.data_used_fraction).replace('.', '_') + '.pkl'
+        train_map_name = 'train_indices_map_' + self._network.dataset_name + '_{:.2f}'.format(self.data_used_fraction).replace('.', '_') + '.pkl'
+        val_map_name = 'val_indices_map_' + self._network.dataset_name + '_{:.2f}'.format(self.data_used_fraction).replace('.', '_') + '.pkl'
         train_map_path = os.path.join(self._network.cache_dir, train_map_name)
         self.val_map_path = os.path.join(self._network.cache_dir, val_map_name)
 
         # make a map of the train and test indices for each file or load precomputed map
-        if os.path.exists(train_map_path) and self.data_used_fraction == 1:
-            self.train_index_map = pkl.load(open(train_map_path, 'r'))
-            self.val_index_map = pkl.load(open(self.val_map_path, 'r'))
+        if os.path.exists(train_map_path):
+
+            train_data = pkl.load(open(train_map_path, 'r'))
+            val_data = pkl.load(open(self.val_map_path, 'r'))
+
+            self.img_filenames = train_data['img_filenames']
+            self.label_filenames = train_data['label_filenames']
+            self.num_train = train_data['num_train']
+
+            # filename for index map
+            self.train_index_map = train_data['train_index_map']
+            self.val_index_map = val_data
 
         else:
+            # read all data filenames
+            all_filenames = os.listdir(self._network.dataset_dir)
+
+            # get image files
+            self.img_filenames = [f for f in all_filenames if f.find(self.filename_templates['depth_imgs']) > -1]
+            # get pose files
+            # self.pose_filenames = [f for f in all_filenames if f.find(ImageFileTemplates.hand_poses_template) > -1]
+            # get label files
+            self.label_filenames = [f for f in all_filenames if f.find(self.filename_templates['labels']) > -1]
+
+            self.img_filenames.sort(key=lambda x: int(x[-9:-4]))
+            # self.pose_filenames.sort(key=lambda x: int(x[-9:-4]))
+            self.label_filenames.sort(key=lambda x: int(x[-9:-4]))
+
+            # randomly choose files for training and validation
+            num_files = len(self.img_filenames)
+            num_files_used = int(self.data_used_fraction * num_files)
+            filename_indices = np.random.choice(num_files, size=num_files_used, replace=False)
+            filename_indices.sort()
+
+            self.img_filenames = [self.img_filenames[k] for k in filename_indices]
+            self.label_filenames = [self.label_filenames[k] for k in filename_indices]
+
+            # get total number of training datapoints
+            num_datapoints = self.images_per_file * num_files
+            self.num_train = int(self.train_fraction * num_datapoints)
+
+            # get training and validation indices
+            all_indices = np.arange(num_datapoints)
+            np.random.shuffle(all_indices)
+            train_indices = np.sort(all_indices[:self.num_train])
+            val_indices = np.sort(all_indices[self.num_train:])
+
+            train_data = {}
             self.train_index_map = {}
             self.val_index_map = {}
 
@@ -123,9 +127,16 @@ class DataLoader(object):
                 self.val_index_map[img_filename] = val_indices[(val_indices >= lower) & (val_indices < upper) & (
                                                                     val_indices - lower < im_arr.shape[0])] - lower
 
+            train_data['img_filenames'] = self.img_filenames
+            train_data['label_filenames'] = self.label_filenames
+            train_data['num_train'] = self.num_train
+            train_data['train_index_map'] = self.train_index_map
+
+            val_data = self.val_index_map
+
             logging.info(self._network.get_date_time() + ' : Writing filename-to-training map to file.')
-            pkl.dump(self.train_index_map, open(train_map_path, 'w'))
-            pkl.dump(self.val_index_map, open(self.val_map_path, 'w'))
+            pkl.dump(train_data, open(train_map_path, 'w'))
+            pkl.dump(val_data, open(self.val_map_path, 'w'))
 
 
     # TODO: make one method out of this and get_next_val_batch

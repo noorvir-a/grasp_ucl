@@ -273,3 +273,82 @@ class DataLoader(object):
 
             self._network.sess.run(self._network.enqueue_op, feed_dict={self._network.img_queue_batch: img_batch,
                                                                         self._network.label_queue_batch: label_batch})
+
+
+    ###### DEBUG CODE ######
+
+    def debug_load_and_enqueue(self):
+
+        img_path = os.path.join(self._network.cache_dir, 'debug_imgs.npz')
+        label_path = os.path.join(self._network.cache_dir, 'debug_labels.npz')
+
+        if os.path.exists(img_path) and os.path.exists(label_path) and not hasattr(self, 'debug_imgs'):
+
+            self.debug_loaded = True
+            debug_img_arr = np.load(img_path)['arr_0']
+            label_arr = np.load(label_path)['arr_0']
+
+            debug_idx = np.random.choice(xrange(np.shape(debug_img_arr)[0]), 10)
+            self.debug_imgs = debug_img_arr[debug_idx]
+            self.debug_labels = label_arr[debug_idx]
+
+        elif not hasattr(self, 'self.debug_imgs'):
+
+            filename_idx = xrange(np.shape(self.img_filenames)[0])
+
+            debug_img_arr = np.empty([1000, 227, 227])
+            label_arr = np.empty([1000, 2])
+            num_data_points = 0
+
+            while num_data_points < 1000:
+
+                file_id = np.random.choice(filename_idx, 1)
+
+                imgs = np.load(self.img_filenames[file_id])['arr_0']
+                labels = np.load(self.img_filenames[file_id])['arr_0']
+
+                # get indices of positive examples
+                pos_indx = np.where(labels[1] > 0)
+                num_pos = np.shape(pos_indx)[0]
+
+                # get positive examples
+                pos_imgs = imgs[pos_indx]
+                pos_labels = labels[pos_indx]
+
+                # get all negative examples
+                neg_imgs = np.delete(imgs, pos_indx)
+                neg_labels = np.delete(labels, pos_indx)
+
+                num_neg = np.shape(neg_imgs)[0]
+                neg_idx = np.random.choice(xrange(num_neg), num_pos, replace=False)
+
+                # get as many negative examples as positive
+                neg_imgs = neg_imgs[neg_idx]
+                neg_labels = neg_labels[neg_idx]
+
+                debug_img_arr = np.concatenate((debug_img_arr, pos_imgs, neg_imgs), axis=0)
+                label_arr = np.concatenate((label_arr, pos_labels, neg_labels), axis=0)
+                num_data_points += (num_pos + num_neg)
+
+            np.random.shuffle(debug_img_arr)
+            np.random.shuffle(label_arr)
+
+            np.savez('debug_imgs', debug_img_arr)
+            np.savez('debug_labels', label_arr)
+
+
+            debug_idx = np.random.choice(xrange(np.shape(debug_img_arr)[0]), 10)
+
+            self.debug_imgs = debug_img_arr[debug_idx]
+            self.debug_labels = label_arr[debug_idx]
+
+        num_imgs = np.shape(self.debug_imgs)[0]
+        batch_idx = np.random.choice(xrange(num_imgs), self._network.batch_size, replace=True)
+
+        img_batch = self.debug_imgs[batch_idx]
+        label_batch = self.debug_labels[batch_idx]
+
+        self._network.sess.run(self._network.enqueue_op, feed_dict={self._network.img_queue_batch: img_batch,
+                                                                    self._network.label_queue_batch: label_batch})
+
+

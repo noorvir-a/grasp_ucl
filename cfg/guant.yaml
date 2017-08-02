@@ -1,18 +1,21 @@
 # Directories
-dataset_dir: /home/noorvir/datasets/gqcnn/dexnet_large_ucl/
+dataset_dir: /home/noorvir/datasets/gqcnn/test/
 cache_dir: /home/noorvir/datasets/gqcnn/cache/
 summary_dir: /home/noorvir/tf_models/GUAN-t/summaries/
 checkpoint_dir: /home/noorvir/tf_models/GUAN-t/checkpoints/
 model_dir: /home/noorvir/tf_models/GUAN-t/pre_trained/         # path to trained GUAN-t model
 
-dataset_name: dexnet_large_ucl
+dataset_name: test
 
 dataset_config: /home/noorvir/catkin_ws/src/grasp_ucl/cfg/datasets.yaml
 pt_weights_filename: /home/noorvir/tf_models/AlexNet/bvlc_alexnet.npy
 
 # Data Parameters
 metric_sample_size: 5                   # number of files to use to approximate data metrics (mean, stddev)
-data_metics_filename: dexnet_large_227
+data_metics_filename: dexnet_mini_227
+
+
+debug: 1                                # run in debug mode or not
 
 # Training parameters
 queue_capacity: 30                     # TODO

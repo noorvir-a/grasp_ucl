@@ -37,6 +37,8 @@ class GUANt(object):
     def _setup_config(self):
         """ Read config file and setup class variables """
 
+        self.debug = self.config['debug']
+
         self.dataset_dir = self.config['dataset_dir']
         self.cache_dir = self.config['cache_dir']
         self.dataset_config = self.config['dataset_config']
@@ -414,7 +416,10 @@ class GUANt(object):
         logging.info('------------------------------------------------')
 
         # use threads to load data asynchronously
-        self.data_thread = threading.Thread(target=self.loader.load_and_enqueue)
+        if self.debug:
+            self.data_thread = threading.Thread(target=self.loader.debug_load_and_enqueue)
+        else:
+            self.data_thread = threading.Thread(target=self.loader.load_and_enqueue)
         self.data_thread.start()
 
         # give some time for the queue to load

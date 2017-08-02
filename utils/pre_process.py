@@ -239,6 +239,8 @@ class DataLoader(object):
             img_batch = np.empty(self.img_shape)
             label_batch = np.empty(self.label_shape)
 
+            data_in_batch = 0
+
             # if the buffer length is smaller than batch size, load next file
             while len(img_batch) < self._network.batch_size:
                 # load next file
@@ -252,7 +254,6 @@ class DataLoader(object):
                 label_file_path = os.path.join(self._network.dataset_dir, label_filename)
 
                 # load new data
-                # TODO: Convert labels to binary
                 img_data = np.load(img_file_path)['arr_0']
                 label_data = np.load(label_file_path)['arr_0']
 
@@ -261,15 +262,53 @@ class DataLoader(object):
                 np.random.shuffle(train_idx)
 
                 # remove validation data-points
-                img_data = (img_data[train_idx] - self._network.img_mean)/self._network.img_stdev
+                # img_data = (img_data[train_idx] - self._network.img_mean)/self._network.img_stdev
+                img_data = img_data[train_idx] - self._network.img_mean
                 label_data = label_data[train_idx]
+
+                # get all positive samples from loaded data
+                # if number of positive samples is less than batch_size/2, load more data
+                # else choose batch_size/2 positive samples, and batch_size/2 negative samples
+
+                pos_idx = np.where(label_data[:, 1] > 0)[0]
+                num_pos = np.shape(pos_idx)[0]
+
+                pos_imgs = img_data[pos_idx]
+                pos_labels = label_data[pos_idx]
+
+                # sample an equal number of negative samples
+                neg_idx = np.where(label_data[:, 0] > 0)[0]
+                num_neg = np.shape(neg_idx)[0]
+
+                if num_neg > num_pos:
+                    neg_idx = np.random.choice(neg_idx, num_pos)
+                    num_neg = np.shape(neg_idx)[0]
+
+                neg_imgs = img_data[neg_idx]
+                neg_labels = label_data[neg_idx]
+
+                # gather pos/neg data
+                img_data = np.concatenate((pos_imgs, neg_imgs), axis=0)
+                label_data = np.concatenate((pos_labels, neg_labels), axis=0)
+                data_in_batch += (num_pos + num_neg)
 
                 # copy first channel into all three (for compatibility with AlexNet)
                 img_data = np.repeat(img_data, self._network.img_channels, axis=self._network.img_channels)
 
-                img_batch = img_data[:self._network.batch_size]
-                label_batch = label_data[:self._network.batch_size]
+                img_batch = np.append(img_batch, img_data, axis=0)
+                label_batch = np.append(label_batch, label_data, axis=0)
 
+                # load more data if not enough to make a batch
+                if data_in_batch < self._network.batch_size:
+                    continue
+
+                # choose batch from collected data
+                idx = range(np.shape(img_batch)[0])
+                idx = np.random.choice(idx, self._network.batch_size)
+                np.random.shuffle(idx)
+
+                img_batch = img_batch[idx]
+                label_batch = label_batch[idx]
 
             self._network.sess.run(self._network.enqueue_op, feed_dict={self._network.img_queue_batch: img_batch,
                                                                         self._network.label_queue_batch: label_batch})

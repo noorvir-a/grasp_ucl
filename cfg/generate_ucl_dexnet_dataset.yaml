@@ -1,7 +1,7 @@
 # directories and filenames
 database_dir: /home/noorvir/datasets/dexnet/grasp_databases/dexnet_2.0_training_database/
 database_filename: dexnet_2_database.hdf5
-dataset_cache_dir: /home/noorvir/catkin_ws/src/dex-net/.dexnet/cache/
+dataset_cache_dir: /home/noorvir/datasets/dexnet/cache/
 
 gripper_name: yumi_metal_spline
 grippers_dir: /home/noorvir/catkin_ws/src/dex-net/data/grippers/

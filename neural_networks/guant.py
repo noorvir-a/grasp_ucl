@@ -48,6 +48,8 @@ class GUANt(object):
         # data params
         self.metric_sample_size = self.config['metric_sample_size']
         self.data_metrics_filename = self.config['data_metics_filename']
+        self.img_max_val = self.config['img_max_val']
+        self.img_min_val = self.config['img_min_val']
 
         # training params
         self.val_frequency = self.config['val_frequency']
@@ -73,7 +75,7 @@ class GUANt(object):
 
         if os.path.exists(data_metrics_path):
 
-            data = pkl.load(data_metrics_path)
+            data = pkl.load(open(data_metrics_path, 'r'))
 
             self.img_mean = data['img_mean']
             self.img_stdev = data['img_stdev']
@@ -101,7 +103,7 @@ class GUANt(object):
             self.img_stdev = np.sqrt(img_sum/float(num_imgs * self.img_width * self.img_height))
 
             data = {'img_mean': self.img_mean, 'img_stdev': self.img_stdev}
-            pkl.dump(data_metrics_path, data)
+            pkl.dump(data, open(data_metrics_path, 'w'))
 
 
     def _create_loss(self):
@@ -413,6 +415,8 @@ class GUANt(object):
         self.data_thread = threading.Thread(target=self.loader.load_and_enqueue)
         self.data_thread.start()
 
+        # give some time for the queue to load
+        time.sleep(5)
         # total training steps
         step = 0
 

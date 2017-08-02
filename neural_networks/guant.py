@@ -169,23 +169,25 @@ class GUANt(object):
         # Loop over all layer names stored in the weights dict
         for op_name in weights_dict:
 
-            # Check if layer should be trained from scratch
-            if op_name not in self.retrain_layers:
+            with tf.variable_scope(op_name, reuse=True):
 
-                with tf.variable_scope(op_name, reuse=True):
+                is_trainable = False
+                # Check if weights in this layer should be modified
+                if op_name in self.retrain_layers:
+                    is_trainable = True
 
-                    # Assign weights/biases to their corresponding tf variable
-                    for data in weights_dict[op_name]:
+                # Assign weights/biases to their corresponding tf variable
+                for data in weights_dict[op_name]:
 
-                        # Biases
-                        if len(data.shape) == 1:
-                            var = tf.get_variable('biases', trainable=False)
-                            self.sess.run(var.assign(data))
+                    # Biases
+                    if len(data.shape) == 1:
+                        var = tf.get_variable('biases', trainable=is_trainable)
+                        self.sess.run(var.assign(data))
 
-                        # Weights
-                        else:
-                            var = tf.get_variable('weights', trainable=False)
-                            self.sess.run(var.assign(data))
+                    # Weights
+                    else:
+                        var = tf.get_variable('weights', trainable=is_trainable)
+                        self.sess.run(var.assign(data))
 
 
     def _load_weights_from_checkpoint(self):

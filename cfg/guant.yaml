@@ -1,11 +1,11 @@
 # Directories
-dataset_dir: /home/noorvir/datasets/gqcnn/test/
+dataset_dir: /home/noorvir/datasets/gqcnn/dexnet_large_ucl/
 cache_dir: /home/noorvir/datasets/gqcnn/cache/
 summary_dir: /home/noorvir/tf_models/GUAN-t/summaries/
 checkpoint_dir: /home/noorvir/tf_models/GUAN-t/checkpoints/
 model_dir: /home/noorvir/tf_models/GUAN-t/pre_trained/         # path to trained GUAN-t model
 
-dataset_name: test
+dataset_name: dexnet_large_ucl
 
 dataset_config: /home/noorvir/catkin_ws/src/grasp_ucl/cfg/datasets.yaml
 pt_weights_filename: /home/noorvir/tf_models/AlexNet/bvlc_alexnet.npy
@@ -13,9 +13,11 @@ pt_weights_filename: /home/noorvir/tf_models/AlexNet/bvlc_alexnet.npy
 # Data Parameters
 metric_sample_size: 5                   # number of files to use to approximate data metrics (mean, stddev)
 data_metics_filename: dexnet_mini_227
+img_min_val: 0
+img_max_val: 255
 
 
-debug: 1                                # run in debug mode or not
+debug: 0                                # run in debug mode or not
 
 # Training parameters
 queue_capacity: 30                     # TODO
@@ -23,7 +25,9 @@ num_epochs: 20
 batch_size: 150
 optimiser: adam                         # adam, momentum or rmsprop
 loss: wxentropy                         # l2, xentropy, wxentropy, or sparse
-pos_train_frac: 0.1                     # fraction of positive training samples (only valid for binary classification)
+pos_train_frac: 0.22                     # fraction of positive training samples (only valid for binary classification)
+#data_euqalisation_frac: 0.4
+
 val_frequency: 100                     # steps
 log_frequency: 50
 save_frequency: 500
@@ -46,9 +50,8 @@ architecture:
     - conv5
     - fc6
     - fc7
+  skip_layers:                       # layers of AlexNet to discard
     - fc8
-  skipped_layers:                       # layers of AlexNet to discard
-    -
   momentum_rate: 0.001
-  learning_rate: 0.005                  # TODO
+  learning_rate: 0.0005                  # TODO
   exponential_decay: 0                  # use learning-rate decay - 0 or 1

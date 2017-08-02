@@ -8,6 +8,7 @@ import pickle as pkl
 import logging
 import threading
 import pandas
+import time
 import os
 
 # Display logging info
@@ -69,6 +70,7 @@ class GUANt(object):
         self.momentum_rate = self.config['architecture']['momentum_rate']
         self.exponential_decay = self.config['architecture']['exponential_decay']
         self.retrain_layers = self.config['architecture']['retrain_layers']
+        self.skip_layers = self.config['architecture']['skip_layers']
 
     def _get_data_metrics(self):
         """ Get metrics on training data """
@@ -170,6 +172,9 @@ class GUANt(object):
 
         # Loop over all layer names stored in the weights dict
         for op_name in weights_dict:
+
+            if op_name in self.skip_layers:
+                continue
 
             with tf.variable_scope(op_name, reuse=True):
 
@@ -406,13 +411,15 @@ class GUANt(object):
         logging.info('Number of Classes: %s' % str(self.num_classes))
         logging.info('Loss: %s' % self.config['loss'])
         logging.info('Optimiser: %s' % self.config['optimiser'])
-        logging.info('Training layers: %s' % str(self.retrain_layers))
-        logging.info('Dataset Directory: %s' % str(self.dataset_dir))
+        logging.info('Pre-trained layers: %s' % str(self.retrain_layers))
+        logging.info('Dataset Name: %s' % str(self.dataset_name))
         logging.info('Fraction of Dataset Used: %s' % str(self.config['data_used_fraction']))
+        logging.info('Fraction of Positive samples: %s' % str(self.config['pos_train_frac']))
         logging.info('Batch Size: %s' % str(self.batch_size))
         logging.info('Learning Rate: %s' % str(self.learning_rate))
         logging.info('Learning Rate Exponential Decay: %s'% str(bool(int(self.exponential_decay))))
         logging.info('Momentum Rate: %s' % str(self.momentum_rate))
+        logging.info('Debug: %s' % str(bool(int(self.exponential_decay))))
         logging.info('------------------------------------------------')
 
         # use threads to load data asynchronously
@@ -420,6 +427,7 @@ class GUANt(object):
             self.data_thread = threading.Thread(target=self.loader.debug_load_and_enqueue)
         else:
             self.data_thread = threading.Thread(target=self.loader.load_and_enqueue)
+
         self.data_thread.start()
 
         # give some time for the queue to load
@@ -427,70 +435,72 @@ class GUANt(object):
         # total training steps
         step = 0
 
-        # iterate over training epochs
-        for epoch in xrange(1, self.config['num_epochs'] + 1):
 
-            # iterate over all batches
-            for batch in xrange(1, batches_per_epoch + 1):
+        with tf.device('/gpu:0'):
+            # iterate over training epochs
+            for epoch in xrange(1, self.config['num_epochs'] + 1):
 
-                # load next training batch
-                # input_batch, label_batch = self.loader.get_next_batch()
+                # iterate over all batches
+                for batch in xrange(1, batches_per_epoch + 1):
 
-                # ---------------------------------
-                # 1. optimise
-                # ---------------------------------
-                # variables to run
-                run_vars = [optimiser, self.loss, self.accuracy_op, self.network_output, self.prediction_outcome, self.input_node,
-                            self.label_node]
-                # variables to feed into the graph TODO: change keep-prob for dropout
-                # feed_dict = {self.input_node: input_batch, self.label_node: label_batch, self.keep_prob: 0.5}
-                # feed_dict = {self.keep_prob: 0.5}
-                # run
-                run_op_outupt = self.sess.run(run_vars)
-                # outputs of run op
-                _, loss, self.train_accuracy, output, prediction_outcome, _, _ = run_op_outupt
+                    # load next training batch
+                    # input_batch, label_batch = self.loader.get_next_batch()
+
+                    # ---------------------------------
+                    # 1. optimise
+                    # ---------------------------------
+                    # variables to run
+                    run_vars = [optimiser, self.loss, self.accuracy_op, self.network_output, self.prediction_outcome, self.input_node,
+                                self.label_node]
+                    # variables to feed into the graph TODO: change keep-prob for dropout
+                    # feed_dict = {self.input_node: input_batch, self.label_node: label_batch, self.keep_prob: 0.5}
+                    # feed_dict = {self.keep_prob: 0.5}
+                    # run
+                    run_op_outupt = self.sess.run(run_vars)
+                    # outputs of run op
+                    _, loss, self.train_accuracy, output, prediction_outcome, _, _ = run_op_outupt
 
 
-                # ---------------------------------
-                # 2. validate
-                # ---------------------------------
-                if batch % self.val_frequency == 0:
+                    # ---------------------------------
+                    # 2. validate
+                    # ---------------------------------
+                    if batch % self.val_frequency == 0:
 
-                    # get data
-                    input_batch, label_batch = self.loader.get_next_val_batch()
-                    val_accuracy, val_error, _ = self.predict(input_batch, label_batch)
+                        # get data
+                        input_batch, label_batch = self.loader.get_next_val_batch()
+                        val_accuracy, val_error, _ = self.predict(input_batch, label_batch)
 
-                    logging.info('------------------------------------------------')
-                    logging.info(self.get_date_time() + ': Validating Network ... ')
-                    logging.info(self.get_date_time() + ': epoch = %d, batch = %d, validation accuracy = %.3f' % (epoch, batch, val_accuracy))
-                    logging.info('------------------------------------------------')
+                        logging.info('------------------------------------------------')
+                        logging.info(self.get_date_time() + ': Validating Network ... ')
+                        logging.info(self.get_date_time() + ': epoch = %d, batch = %d, validation accuracy = %.3f' % (epoch, batch, val_accuracy))
+                        logging.info('------------------------------------------------')
 
-                    # log summaries
-                    summary = self.sess.run(self.merged_val_summaries, feed_dict={self._pred_input_node: input_batch,
-                                                                                  self._pred_label_node: label_batch})
-                    self.summariser.add_summary(summary, step)
+                        # log summaries
+                        summary = self.sess.run(self.merged_val_summaries, feed_dict={self._pred_input_node: input_batch,
+                                                                                      self._pred_label_node: label_batch})
+                        self.summariser.add_summary(summary, step)
 
-                # log
-                if batch % self.log_frequency == 0:
-                    logging.info(self.get_date_time() + ': epoch = %d, batch = %d, accuracy = %.3f' % (epoch, batch, self.train_accuracy))
+                    # log
+                    if batch % self.log_frequency == 0:
+                        logging.info(self.get_date_time() + ': epoch = %d, batch = %d, accuracy = %.3f' % (epoch, batch, self.train_accuracy))
 
-                    # log summaries
-                    summary = self.sess.run(self.merged_train_summaries)
-                    self.summariser.add_summary(summary, step)
+                        # log summaries
+                        summary = self.sess.run(self.merged_train_summaries)
+                        self.summariser.add_summary(summary, step)
 
-                # save
-                if batch % self.save_frequency == 0:
-                    checkpoint_path = os.path.join(self.checkpoint_dir, model_dir_name, 'model%d.ckpt' % (step + 1))
-                    logging.info('------------------------------------------------')
-                    logging.info(self.get_date_time() + ': epoch = %d, batch = %d, accuracy = %.3f' % (epoch, batch, self.train_accuracy))
-                    logging.info(self.get_date_time() + ': Saving model as %s' % checkpoint_path)
-                    logging.info('------------------------------------------------')
+                    # save
+                    if batch % self.save_frequency == 0:
+                        checkpoint_path = os.path.join(self.checkpoint_dir, model_dir_name, 'model%d.ckpt' % (step + 1))
+                        logging.info('------------------------------------------------')
+                        logging.info(self.get_date_time() + ': epoch = %d, batch = %d, accuracy = %.3f' % (epoch, batch, self.train_accuracy))
+                        logging.info(self.get_date_time() + ': Saving model as %s' % checkpoint_path)
+                        logging.info('------------------------------------------------')
 
-                    latest_checkpoint_path = os.path.join(self.checkpoint_dir, model_dir_name, 'model.ckpt')        # save a copy of the latest model
-                    self.saver.save(self.sess, checkpoint_path)
-                    self.saver.save(self.sess, latest_checkpoint_path)
+                        latest_checkpoint_path = os.path.join(self.checkpoint_dir, model_dir_name, 'model.ckpt')        # save a copy of the latest model
+                        self.saver.save(self.sess, checkpoint_path)
+                        self.saver.save(self.sess, latest_checkpoint_path)
 
-                step += 1
+                    step += 1
 
         # except Exception as err:
         #     logging.error(str(err))

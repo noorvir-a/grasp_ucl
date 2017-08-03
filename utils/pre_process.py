@@ -103,7 +103,7 @@ class DataLoader(object):
             self.label_filenames = [self.label_filenames[k] for k in filename_indices]
 
             # get total number of training datapoints
-            num_datapoints = self.images_per_file * num_files
+            num_datapoints = self.images_per_file * num_files_used
             self.num_train = int(self.train_fraction * num_datapoints)
 
             # get training and validation indices

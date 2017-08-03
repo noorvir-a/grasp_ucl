@@ -118,12 +118,10 @@ class GUANt(object):
             return tf.nn.l2_loss(tf.subtract(self.network_output, self.label_node))
         # sparse cross-entropy
         elif self.config['loss'] == 'sparse':
-            return tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(labels=self.label_node,
-                                                                                 logits=self.network_output))
+            return tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(labels=self.label_node, logits=self.network_output))
         # cross-entropy loss
         elif self.config['loss'] == 'xentropy':
-            return tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(labels=self.label_node,
-                                                                          logits=self.network_output))
+            return tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(labels=self.label_node, logits=self.network_output))
         # weighted cross-entropy loss
         elif self.config['loss'] == 'wxentropy':
 
@@ -273,6 +271,7 @@ class GUANt(object):
                                       shapes=[(self.batch_size, self.img_width, self.img_height, self.img_channels),
                                               (self.batch_size, self.num_classes)])
             self.enqueue_op = self.queue.enqueue([self.img_queue_batch, self.label_queue_batch])
+            self.queue_size_op = self.queue.size()
             self.input_node, self.label_node = self.queue.dequeue()
 
         # initialise Tensorflow Session and variables
@@ -333,8 +332,9 @@ class GUANt(object):
     def create_network(self, input_data):
         """ Create GUAN-t on top of AlexNet"""
 
+        init = tf.contrib.layers.xavier_initializer()
         # initialise raw AlexNet
-        alexnet = AlexNet(input_data, self.num_classes, retrain_layers=self.retrain_layers)
+        alexnet = AlexNet(input_data, self.num_classes, retrain_layers=self.retrain_layers, initialiser=init)
 
         # network output
         return alexnet.layers['fc8']
@@ -409,6 +409,7 @@ class GUANt(object):
         # log info about training
         logging.info('------------------------------------------------')
         logging.info('Number of Classes: %s' % str(self.num_classes))
+        logging.info('Number of Training Data-points: %s' % str(self.loader.num_train))
         logging.info('Loss: %s' % self.config['loss'])
         logging.info('Optimiser: %s' % self.config['optimiser'])
         logging.info('Pre-trained layers: %s' % str(self.retrain_layers))
@@ -440,6 +441,8 @@ class GUANt(object):
         # total training steps
         step = 0
 
+        # print trainable variables
+        logging.info('Variables to be trained: ', [var.name.split(':')[0] for var in tf.trainable_variables()])
 
         with tf.device('/gpu:0'):
             # iterate over training epochs
@@ -456,14 +459,14 @@ class GUANt(object):
                     # ---------------------------------
                     # variables to run
                     run_vars = [optimiser, self.loss, self.accuracy_op, self.network_output, self.prediction_outcome, self.input_node,
-                                self.label_node]
+                                self.label_node, self.queue_size_op]
                     # variables to feed into the graph TODO: change keep-prob for dropout
                     # feed_dict = {self.input_node: input_batch, self.label_node: label_batch, self.keep_prob: 0.5}
                     # feed_dict = {self.keep_prob: 0.5}
                     # run
                     run_op_outupt = self.sess.run(run_vars)
                     # outputs of run op
-                    _, loss, self.train_accuracy, output, prediction_outcome, _, _ = run_op_outupt
+                    _, loss, self.train_accuracy, output, prediction_outcome, _, _, queue_size = run_op_outupt
 
 
                     # ---------------------------------
@@ -487,7 +490,8 @@ class GUANt(object):
 
                     # log
                     if batch % self.log_frequency == 0:
-                        logging.info(self.get_date_time() + ': epoch = %d, batch = %d, accuracy = %.3f' % (epoch, batch, self.train_accuracy))
+                        logging.info(self.get_date_time() + ': epoch = %d, batch = %d, accuracy = %.3f, loss = %.3f, queue_size = %d'
+                                     % (epoch, batch, self.train_accuracy, loss, queue_size))
 
                         # log summaries
                         summary = self.sess.run(self.merged_train_summaries)

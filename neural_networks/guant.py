@@ -214,7 +214,8 @@ class GUANt(object):
         tf.summary.scalar(self.config['loss'] + '_loss', self.loss, collections=['training_summary'])
 
         # gradients
-        var_list = [var for var in tf.trainable_variables() if var.name.split('/')[0] in self.retrain_layers]
+        gradient_list = self.retrain_layers + ['fc8']
+        var_list = [var for var in tf.trainable_variables() if var.name.split('/')[0] in gradient_list]
         gradients = tf.gradients(self.loss, var_list)
         gradients = list(zip(gradients, var_list))
 
@@ -420,7 +421,7 @@ class GUANt(object):
         logging.info('Learning Rate: %s' % str(self.learning_rate))
         logging.info('Learning Rate Exponential Decay: %s'% str(bool(int(self.exponential_decay))))
         logging.info('Momentum Rate: %s' % str(self.momentum_rate))
-        logging.info('Debug: %s' % str(bool(int(self.exponential_decay))))
+        logging.info('Debug: %s' % str(bool(int(self.debug))))
         logging.info('------------------------------------------------')
 
         # use threads to load data asynchronously
@@ -442,7 +443,7 @@ class GUANt(object):
         step = 0
 
         # print trainable variables
-        logging.info('Variables to be trained: ', [var.name.split(':')[0] for var in tf.trainable_variables()])
+        logging.info('Variables to be trained: %s' % str([var.name.split(':')[0] for var in tf.trainable_variables()]))
 
         with tf.device('/gpu:0'):
             # iterate over training epochs

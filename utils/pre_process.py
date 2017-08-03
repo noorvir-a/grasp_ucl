@@ -59,8 +59,8 @@ class DataLoader(object):
         """ Load file names from data-set and randomly select a pre-set fraction to train on """
 
         # filename for index map
-        train_map_name = 'train_indices_map_' + self._network.dataset_name + '_{:.2f}'.format(self.data_used_fraction).replace('.', '_') + '.pkl'
-        val_map_name = 'val_indices_map_' + self._network.dataset_name + '_{:.2f}'.format(self.data_used_fraction).replace('.', '_') + '.pkl'
+        train_map_name = 'train_indices_map_' + self._network.dataset_name + '_{:.5f}'.format(self.data_used_fraction).replace('.', '_') + '.pkl'
+        val_map_name = 'val_indices_map_' + self._network.dataset_name + '_{:.5f}'.format(self.data_used_fraction).replace('.', '_') + '.pkl'
         train_map_path = os.path.join(self._network.cache_dir, train_map_name)
         self.val_map_path = os.path.join(self._network.cache_dir, val_map_name)
 
@@ -276,6 +276,9 @@ class DataLoader(object):
 
                 num_neg = np.shape(neg_imgs)[0]
 
+                pos_imgs = np.repeat(pos_imgs, self._network.img_channels, axis=self._network.img_channels)
+                neg_imgs = np.repeat(neg_imgs, self._network.img_channels, axis=self._network.img_channels)
+
                 img_batch = np.append(img_batch, pos_imgs, axis=0)
                 img_batch = np.append(img_batch, neg_imgs, axis=0)
 
@@ -289,8 +292,6 @@ class DataLoader(object):
 
             img_batch = img_batch[batch_idx]
             label_batch = label_batch[batch_idx]
-
-            img_batch = np.repeat(img_batch, self._network.img_channels, axis=self._network.img_channels)
 
             self._network.sess.run(self._network.enqueue_op, feed_dict={self._network.img_queue_batch: img_batch,
                                                                         self._network.label_queue_batch: label_batch})

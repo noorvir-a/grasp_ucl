@@ -428,10 +428,15 @@ class GUANt(object):
         else:
             self.data_thread = threading.Thread(target=self.loader.load_and_enqueue)
 
+        self.data_thread.daemon = True
         self.data_thread.start()
 
         # give some time for the queue to load
-        time.sleep(5)
+        logging.info('Waiting for data queue to be populated')
+        time.sleep(60)
+
+        logging.info('Starting Optimisation')
+
         # total training steps
         step = 0
 

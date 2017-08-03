@@ -235,7 +235,6 @@ class DataLoader(object):
 
         while True:
 
-            time.sleep(0.001)
             img_batch = np.empty(self.img_shape)
             label_batch = np.empty(self.label_shape)
 

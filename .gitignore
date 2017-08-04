@@ -4,6 +4,10 @@ __pycache__/
 *$py.class
 *.dexnet
 
+# Data files
+*.npz
+*.npy
+
 # C extensions
 *.so
 

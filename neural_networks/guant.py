@@ -263,15 +263,17 @@ class GUANt(object):
         # TODO: implement TensorFlow FIFOQueue to get new batch data
         with tf.name_scope('data_queue'):
 
-            # queue placeholders
-            self.img_queue_batch = tf.placeholder(tf.float32, (self.batch_size, self.img_width, self.img_height, self.img_channels))
-            self.label_queue_batch = tf.placeholder(tf.float32, (self.batch_size, self.num_classes))
-
             # setup TensorFlow Queue
             self.queue = tf.FIFOQueue(self.queue_capacity, [tf.float32, tf.float32],
                                       shapes=[(self.batch_size, self.img_width, self.img_height, self.img_channels),
                                               (self.batch_size, self.num_classes)])
-            self.enqueue_op = self.queue.enqueue([self.img_queue_batch, self.label_queue_batch])
+
+            # wrap python function to load data from numpy files
+            img_batch, label_batch = tf.py_func(self.loader.load_data,
+                                                inp=[],
+                                                Tout=[tf.float32, tf.float32])
+
+            self.enqueue_op = self.queue.enqueue([img_batch, label_batch])
             self.queue_size_op = self.queue.size()
             self.input_node, self.label_node = self.queue.dequeue()
 
@@ -425,18 +427,10 @@ class GUANt(object):
         logging.info('Debug: %s' % str(bool(int(self.debug))))
         logging.info('------------------------------------------------')
 
-        # use threads to load data asynchronously
-        if self.debug:
-            self.data_thread = threading.Thread(target=self.loader.debug_load_and_enqueue)
-        else:
-            self.data_thread = threading.Thread(target=self.loader.load_and_enqueue)
-
-        self.data_thread.daemon = True
-        self.data_thread.start()
-
-        # give some time for the queue to load
-        logging.info('Waiting for data queue to be populated')
-        time.sleep(60)
+        # use multiple threads to load data
+        coord = tf.train.Coordinator()
+        qr = tf.train.QueueRunner(self.queue, [self.enqueue_op] * 2)
+        self.enqueue_threads = qr.create_threads(self.sess, coord=coord, start=True)
 
         logging.info('Starting Optimisation')
 
@@ -453,9 +447,6 @@ class GUANt(object):
                 # iterate over all batches
                 for batch in xrange(1, batches_per_epoch + 1):
 
-                    # load next training batch
-                    # input_batch, label_batch = self.loader.get_next_batch()
-
                     # ---------------------------------
                     # 1. optimise
                     # ---------------------------------
@@ -469,7 +460,6 @@ class GUANt(object):
                     run_op_outupt = self.sess.run(run_vars)
                     # outputs of run op
                     _, loss, self.train_accuracy, output, prediction_outcome, _, _, queue_size = run_op_outupt
-
 
                     # ---------------------------------
                     # 2. validate
@@ -512,6 +502,9 @@ class GUANt(object):
                         self.saver.save(self.sess, latest_checkpoint_path)
 
                     step += 1
+
+            coord.request_stop()
+            coord.join(self.enqueue_threads)
 
         # except Exception as err:
         #     logging.error(str(err))

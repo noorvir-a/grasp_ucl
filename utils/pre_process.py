@@ -11,6 +11,7 @@ Grasp Metrics." Robotics, Science, and Systems, 2017. Cambridge, MA.
 
 """
 
+import tensorflow as tf
 import numpy as np
 import pickle as pkl
 import logging
@@ -230,85 +231,75 @@ class DataLoader(object):
         return img_batch, label_batch
 
 
-    def load_and_enqueue(self):
-        """ Load the next batch of data and enqueue"""
+    def load_data(self):
+        """"""
 
         filename_idx = xrange(np.shape(self.img_filenames)[0])
 
-        while True:
+        img_batch = np.empty(self.img_shape)
+        label_batch = np.empty(self.label_shape)
 
-            img_batch = np.empty(self.img_shape)
-            label_batch = np.empty(self.label_shape)
+        data_in_batch = 0
+        while data_in_batch < self._network.batch_size:
 
-            data_in_batch = 0
+            # load next file
+            file_id = np.random.choice(filename_idx, size=1)[0]
+            # load new data
+            imgs = np.load(os.path.join(self._network.dataset_dir, self.img_filenames[file_id]))['arr_0']
+            labels = np.load(os.path.join(self._network.dataset_dir, self.label_filenames[file_id]))['arr_0']
 
-            # if the buffer length is smaller than batch size, load next file
-            while data_in_batch < self._network.batch_size:
+            # get indices of positive examples
+            pos_indx = np.where(labels[:, 1] > 0)[0]
+            num_pos = np.shape(pos_indx)[0]
 
-                # load next file
-                file_id = np.random.choice(filename_idx, size=1)[0]
+            # get positive examples
+            pos_imgs = imgs[pos_indx]
+            pos_labels = labels[pos_indx]
 
-                # load new data
-                imgs = np.load(os.path.join(self._network.dataset_dir, self.img_filenames[file_id]))['arr_0']
-                labels = np.load(os.path.join(self._network.dataset_dir, self.label_filenames[file_id]))['arr_0']
+            # get all negative examples
+            neg_imgs = np.delete(imgs, pos_indx, axis=0)
+            neg_labels = np.delete(labels, pos_indx, axis=0)
+            num_neg = np.shape(neg_imgs)[0]
 
-                # get indices of positive examples
-                pos_indx = np.where(labels[:, 1] > 0)[0]
-                num_pos = np.shape(pos_indx)[0]
+            if num_neg >= num_pos:
+                neg_idx = np.random.choice(xrange(num_neg), num_pos, replace=False)
+            else:
+                neg_idx = np.random.choice(xrange(num_neg), num_neg, replace=False)
 
-                # get positive examples
-                pos_imgs = imgs[pos_indx]
-                pos_labels = labels[pos_indx]
+            # get as many negative examples as positive
+            neg_imgs = neg_imgs[neg_idx]
+            neg_labels = neg_labels[neg_idx]
 
-                # get all negative examples
-                neg_imgs = np.delete(imgs, pos_indx, axis=0)
-                neg_labels = np.delete(labels, pos_indx, axis=0)
+            pos_imgs = np.repeat(pos_imgs, self._network.img_channels, axis=self._network.img_channels)
+            neg_imgs = np.repeat(neg_imgs, self._network.img_channels, axis=self._network.img_channels)
 
-                num_neg = np.shape(neg_imgs)[0]
-                if num_neg >= num_pos:
-                    neg_idx = np.random.choice(xrange(num_neg), num_pos, replace=False)
-                else:
-                    neg_idx = np.random.choice(xrange(num_neg), num_neg, replace=False)
+            curr_imgs = np.concatenate((pos_imgs, neg_imgs))
+            curr_labels = np.concatenate((pos_labels, neg_labels))
 
-                # get as many negative examples as positive
-                neg_imgs = neg_imgs[neg_idx]
-                neg_labels = neg_labels[neg_idx]
+            num_curr_imgs = np.shape(curr_imgs)[0]
+            if num_curr_imgs > 10:
+                subsample_idx = np.random.choice(range(num_curr_imgs), size=10)
+            elif num_curr_imgs > 0:
+                subsample_idx = np.random.choice(range(num_curr_imgs), size=num_curr_imgs)
+            else:
+                continue
 
-                num_neg = np.shape(neg_imgs)[0]
+            curr_imgs = curr_imgs[subsample_idx]
+            curr_labels = curr_labels[subsample_idx]
 
-                pos_imgs = np.repeat(pos_imgs, self._network.img_channels, axis=self._network.img_channels)
-                neg_imgs = np.repeat(neg_imgs, self._network.img_channels, axis=self._network.img_channels)
+            # add to batch
+            img_batch = np.append(img_batch, curr_imgs, axis=0)
+            label_batch = np.append(label_batch, curr_labels, axis=0)
 
-                curr_imgs = np.concatenate((pos_imgs, neg_imgs))
-                curr_labels = np.concatenate((pos_labels, neg_labels))
+            data_in_batch = np.shape(img_batch)[0]
 
-                num_curr_imgs = np.shape(curr_imgs)[0]
-                if num_curr_imgs > 10:
-                    subsample_idx = np.random.choice(range(num_curr_imgs), size=10)
-                elif num_curr_imgs > 0:
-                    subsample_idx = np.random.choice(range(num_curr_imgs), size=num_curr_imgs)
-                else:
-                    continue
+        batch_idx = np.random.choice(range(np.shape(img_batch)[0]), self._network.batch_size)
+        np.random.shuffle(batch_idx)
 
+        img_batch = img_batch[batch_idx]
+        label_batch = label_batch[batch_idx]
 
-                curr_imgs = curr_imgs[subsample_idx]
-                curr_labels = curr_labels[subsample_idx]
-
-                # add to batch
-                img_batch = np.append(img_batch, curr_imgs, axis=0)
-                label_batch = np.append(label_batch, curr_labels, axis=0)
-
-                # data_in_batch += (num_pos + num_neg)
-                data_in_batch = np.shape(img_batch)[0]
-
-            batch_idx = np.random.choice(range(np.shape(img_batch)[0]), self._network.batch_size)
-            np.random.shuffle(batch_idx)
-
-            img_batch = img_batch[batch_idx]
-            label_batch = label_batch[batch_idx]
-
-            self._network.sess.run(self._network.enqueue_op, feed_dict={self._network.img_queue_batch: img_batch,
-                                                                        self._network.label_queue_batch: label_batch})
+        return [img_batch.astype(np.float32), label_batch.astype(np.float32)]
 
 
     ###### DEBUG CODE ######

@@ -233,6 +233,8 @@ class DataLoader(object):
     def load_and_enqueue(self):
         """ Load the next batch of data and enqueue"""
 
+        filename_idx = xrange(np.shape(self.img_filenames)[0])
+
         while True:
 
             img_batch = np.empty(self.img_shape)
@@ -242,15 +244,13 @@ class DataLoader(object):
 
             # if the buffer length is smaller than batch size, load next file
             while data_in_batch < self._network.batch_size:
-                # load next file
 
-                file_id = np.random.choice(len(self.img_filenames), size=1)[0]
-                img_filename = self.img_filenames[file_id]
-                label_filename = self.label_filenames[file_id]
+                # load next file
+                file_id = np.random.choice(filename_idx, size=1)[0]
 
                 # load new data
-                imgs = np.load(os.path.join(self._network.dataset_dir, img_filename))['arr_0']
-                labels = np.load(os.path.join(self._network.dataset_dir, label_filename))['arr_0']
+                imgs = np.load(os.path.join(self._network.dataset_dir, self.img_filenames[file_id]))['arr_0']
+                labels = np.load(os.path.join(self._network.dataset_dir, self.label_filenames[file_id]))['arr_0']
 
                 # get indices of positive examples
                 pos_indx = np.where(labels[:, 1] > 0)[0]
@@ -279,13 +279,27 @@ class DataLoader(object):
                 pos_imgs = np.repeat(pos_imgs, self._network.img_channels, axis=self._network.img_channels)
                 neg_imgs = np.repeat(neg_imgs, self._network.img_channels, axis=self._network.img_channels)
 
-                img_batch = np.append(img_batch, pos_imgs, axis=0)
-                img_batch = np.append(img_batch, neg_imgs, axis=0)
+                curr_imgs = np.concatenate((pos_imgs, neg_imgs))
+                curr_labels = np.concatenate((pos_labels, neg_labels))
 
-                label_batch = np.append(label_batch, pos_labels, axis=0)
-                label_batch = np.append(label_batch, neg_labels, axis=0)
+                num_curr_imgs = np.shape(curr_imgs)[0]
+                if num_curr_imgs > 10:
+                    subsample_idx = np.random.choice(range(num_curr_imgs), size=10)
+                elif num_curr_imgs > 0:
+                    subsample_idx = np.random.choice(range(num_curr_imgs), size=num_curr_imgs)
+                else:
+                    continue
 
-                data_in_batch += (num_pos + num_neg)
+
+                curr_imgs = curr_imgs[subsample_idx]
+                curr_labels = curr_labels[subsample_idx]
+
+                # add to batch
+                img_batch = np.append(img_batch, curr_imgs, axis=0)
+                label_batch = np.append(label_batch, curr_labels, axis=0)
+
+                # data_in_batch += (num_pos + num_neg)
+                data_in_batch = np.shape(img_batch)[0]
 
             batch_idx = np.random.choice(range(np.shape(img_batch)[0]), self._network.batch_size)
             np.random.shuffle(batch_idx)
@@ -304,6 +318,8 @@ class DataLoader(object):
         img_path = os.path.join(self._network.cache_dir, 'debug_imgs.npz')
         label_path = os.path.join(self._network.cache_dir, 'debug_labels.npz')
 
+        num_data = 10000
+
         while True:
             time.sleep(0.001)
 
@@ -313,7 +329,7 @@ class DataLoader(object):
                 debug_img_arr = np.load(img_path)['arr_0']
                 label_arr = np.load(label_path)['arr_0']
 
-                debug_idx = np.random.choice(xrange(np.shape(debug_img_arr)[0]), 10)
+                debug_idx = np.random.choice(xrange(np.shape(debug_img_arr)[0]), num_data, replace=False)
                 self.debug_imgs = debug_img_arr[debug_idx]
                 self.debug_labels = label_arr[debug_idx]
 
@@ -325,9 +341,9 @@ class DataLoader(object):
                 debug_label_arr = np.empty([0, 2])
                 num_data_points = 0
 
-                while num_data_points < 5000:
+                while num_data_points < num_data:
 
-                    file_id = np.random.choice(filename_idx, 1)
+                    file_id = np.random.choice(filename_idx, size=1)
 
                     imgs = np.load(os.path.join(self._network.dataset_dir, self.img_filenames[file_id]))['arr_0']
                     labels = np.load(os.path.join(self._network.dataset_dir, self.label_filenames[file_id]))['arr_0']
@@ -374,13 +390,13 @@ class DataLoader(object):
                 np.savez(label_path, debug_label_arr)
 
 
-                debug_idx = np.random.choice(xrange(np.shape(debug_img_arr)[0]), 5000)
+                debug_idx = np.random.choice(xrange(np.shape(debug_img_arr)[0]), num_data)
 
                 self.debug_imgs = debug_img_arr[debug_idx]
                 self.debug_labels = debug_label_arr[debug_idx]
 
             num_imgs = np.shape(self.debug_imgs)[0]
-            batch_idx = np.random.choice(xrange(num_imgs), self._network.batch_size, replace=True)
+            batch_idx = np.random.choice(xrange(num_imgs), self._network.batch_size, replace=False)
 
             img_batch = self.debug_imgs[batch_idx]
             # img_batch = img_batch - self._network.img_mean

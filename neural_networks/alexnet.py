@@ -33,7 +33,7 @@ import numpy as np
 class AlexNet(object):
     """Implementation of the AlexNet."""
 
-    def __init__(self, x, num_classes, retrain_layers, initialiser, keep_prob=0.5, weights_path='DEFAULT'):
+    def __init__(self, x, num_classes, retrain_layers, initialiser, keep_prob=1, weights_path='DEFAULT'):
         """Create the graph of the AlexNet model.
 
         Args:

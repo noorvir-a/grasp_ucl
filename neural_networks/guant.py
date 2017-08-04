@@ -395,7 +395,7 @@ class GUANt(object):
             self._load_pretrained_weights()
         elif weights_init == 'checkpoint':
             self._load_weights_from_checkpoint()
-        else:
+        elif weights_init == 'gaussian':
             self._init_weights()
 
         # number of batches per epoch
@@ -421,6 +421,7 @@ class GUANt(object):
         logging.info('Learning Rate: %s' % str(self.learning_rate))
         logging.info('Learning Rate Exponential Decay: %s'% str(bool(int(self.exponential_decay))))
         logging.info('Momentum Rate: %s' % str(self.momentum_rate))
+        logging.info('Weights Initialisation Type: %s' % weights_init)
         logging.info('Debug: %s' % str(bool(int(self.debug))))
         logging.info('------------------------------------------------')
 

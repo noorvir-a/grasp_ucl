@@ -53,13 +53,21 @@ class GUANt(object):
         self.data_metrics_filename = self.config['data_metics_filename']
         self.img_max_val = self.config['img_max_val']
         self.img_min_val = self.config['img_min_val']
+        self.datapoints_per_file = self.config['datapoints_per_file']
+
+        # queues
+        self.num_data_dequeue = self.config['num_data_dequeue']
+        self.data_queue_capacity = self.config['data_queue_capacity']
+        self.batch_queue_capacity = self.config['batch_queue_capacity']
+        self.num_data_enqueue_threads = self.config['num_data_enqueue_threads']
+        self.num_batch_enqueue_threads = self.config['num_batch_enqueue_threads']
 
         # training params
         self.val_frequency = self.config['val_frequency']
         self.log_frequency = self.config['log_frequency']
         self.save_frequency = self.config['save_frequency']
         self.batch_size = self.config['batch_size']
-        self.queue_capacity = self.config['queue_capacity']
+        self.pos_train_frac = self.config['pos_train_frac']
 
         # architecture
         self.img_width = self.config['architecture']['img_width']
@@ -129,7 +137,7 @@ class GUANt(object):
                 raise ValueError(' Weighted loss is only implemented for binary classification (for now).')
 
             # ratio of positive training samples to total samples
-            weights_ratio = self.config['pos_train_frac']
+            weights_ratio = self.pos_train_frac
 
             # weight training samples based on the distribution of classes in the training data-set
             class_weights = tf.constant([weights_ratio, 1 - weights_ratio])
@@ -260,26 +268,30 @@ class GUANt(object):
         self.loader = DataLoader(self, self.dataset_config)
         self.num_training_samples = self.loader.num_train
 
-        # TODO: implement TensorFlow FIFOQueue to get new batch data
-        with tf.name_scope('data_queue'):
-
-            # setup TensorFlow Queue
-            self.queue = tf.FIFOQueue(self.queue_capacity, [tf.float32, tf.float32],
-                                      shapes=[(self.batch_size, self.img_width, self.img_height, self.img_channels),
-                                              (self.batch_size, self.num_classes)])
-
-            # wrap python function to load data from numpy files
-            img_batch, label_batch = tf.py_func(self.loader.load_data,
-                                                inp=[],
-                                                Tout=[tf.float32, tf.float32])
-
-            self.enqueue_op = self.queue.enqueue([img_batch, label_batch])
-            self.queue_size_op = self.queue.size()
-            self.input_node, self.label_node = self.queue.dequeue()
-
         # initialise Tensorflow Session and variables
         self.sess = self._open_session()
         self._tensorflow_initialised = True
+
+        # setup queue to load data from file into buffer
+        with tf.name_scope('data_queue'):
+            self.data_queue = tf.RandomShuffleQueue(self.data_queue_capacity, 0, dtypes=[tf.float32, tf.float32],
+                                                    shapes=[[self.img_width, self.img_height, self.img_channels],
+                                                            [self.num_classes]])
+
+            # wrap python function to load data from numpy files
+            train_imgs, train_labels = tf.py_func(self.loader.load_data, inp=[], Tout=[tf.float32, tf.float32])
+            self.data_enqueue_op = self.data_queue.enqueue_many([train_imgs, train_labels], name='enqueue_op')
+            self.data_queue_size_op = self.data_queue.size()
+
+        # setup operations to queue data into batches from from data_queue
+        with tf.name_scope('batch_queue'):
+            self.batch_queue = tf.FIFOQueue(self.batch_queue_capacity, [tf.float32, tf.float32],
+                                            shapes=[[self.img_width, self.img_height, self.img_channels], [self.num_classes]])
+
+            imgs, labels = self.loader.get_batch()
+            self.batch_enqueue_op = self.batch_queue.enqueue_many([imgs, labels], name='enqueue_op')
+            self.input_node, self.label_node = self.batch_queue.dequeue_many(n=self.batch_size, name='dequeue_op')
+            self.batch_queue_size_op = self.batch_queue.size()
 
 
     def _init_metric_ops(self):
@@ -429,8 +441,16 @@ class GUANt(object):
 
         # use multiple threads to load data
         coord = tf.train.Coordinator()
-        qr = tf.train.QueueRunner(self.queue, [self.enqueue_op] * 2)
-        self.enqueue_threads = qr.create_threads(self.sess, coord=coord, start=True)
+        qr_data = tf.train.QueueRunner(self.data_queue, [self.data_enqueue_op] * self.num_data_enqueue_threads)
+        qr_batch = tf.train.QueueRunner(self.batch_queue, [self.batch_enqueue_op] * self.num_batch_enqueue_threads)
+
+        # add QueueRunners to default collection
+        tf.train.add_queue_runner(qr_data)
+        tf.train.add_queue_runner(qr_batch)
+
+        # create and start threads
+        self.data_enqueue_threads = qr_data.create_threads(self.sess, coord=coord, start=True)
+        self.batch_enqueue_threads = qr_batch.create_threads(self.sess, coord=coord, start=True)
 
         logging.info('Starting Optimisation')
 
@@ -451,15 +471,13 @@ class GUANt(object):
                     # 1. optimise
                     # ---------------------------------
                     # variables to run
-                    run_vars = [optimiser, self.loss, self.accuracy_op, self.network_output, self.prediction_outcome, self.input_node,
-                                self.label_node, self.queue_size_op]
-                    # variables to feed into the graph TODO: change keep-prob for dropout
-                    # feed_dict = {self.input_node: input_batch, self.label_node: label_batch, self.keep_prob: 0.5}
-                    # feed_dict = {self.keep_prob: 0.5}
-                    # run
+                    run_vars = [optimiser, self.loss, self.accuracy_op, self.network_output, self.prediction_outcome,
+                                 self.data_queue_size_op, self.batch_queue_size_op, self.merged_train_summaries]
+
+                    # TODO: dequeue data only once instead of three times
                     run_op_outupt = self.sess.run(run_vars)
                     # outputs of run op
-                    _, loss, self.train_accuracy, output, prediction_outcome, _, _, queue_size = run_op_outupt
+                    _, loss, self.train_accuracy, output, prediction_outcome, data_queue_size, batch_queue_size, training_summaries = run_op_outupt
 
                     # ---------------------------------
                     # 2. validate
@@ -482,12 +500,11 @@ class GUANt(object):
 
                     # log
                     if batch % self.log_frequency == 0:
-                        logging.info(self.get_date_time() + ': epoch = %d, batch = %d, accuracy = %.3f, loss = %.3f, queue_size = %d'
-                                     % (epoch, batch, self.train_accuracy, loss, queue_size))
+                        logging.info(self.get_date_time() + ': epoch = %d, batch = %d, accuracy = %.3f, loss = %.3f, data_queue_size = %d, batch_queue_size = %d'
+                                     % (epoch, batch, self.train_accuracy, loss, data_queue_size, batch_queue_size))
 
                         # log summaries
-                        summary = self.sess.run(self.merged_train_summaries)
-                        self.summariser.add_summary(summary, step)
+                        self.summariser.add_summary(training_summaries, step)
 
                     # save
                     if batch % self.save_frequency == 0:
@@ -504,7 +521,8 @@ class GUANt(object):
                     step += 1
 
             coord.request_stop()
-            coord.join(self.enqueue_threads)
+            coord.join(self.data_enqueue_threads)
+            coord.join(self.batch_enqueue_threads)
 
         # except Exception as err:
         #     logging.error(str(err))

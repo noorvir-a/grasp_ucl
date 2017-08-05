@@ -15,12 +15,19 @@ metric_sample_size: 5                   # number of files to use to approximate 
 data_metics_filename: dexnet_mini_227
 img_min_val: 0
 img_max_val: 255
+datapoints_per_file: 1000
+
+# Queue and Thread Parameters
+num_data_dequeue: 1000
+data_queue_capacity: 2000
+batch_queue_capacity: 2000
+num_data_enqueue_threads: 4
+num_batch_enqueue_threads: 2
 
 
 debug: 0                                # run in debug mode or not
 
 # Training parameters
-queue_capacity: 100                     # TODO
 num_epochs: 50
 batch_size: 150
 optimiser: momentum                         # adam, momentum or rmsprop

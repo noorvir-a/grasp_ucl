@@ -230,76 +230,66 @@ class DataLoader(object):
 
         return img_batch, label_batch
 
+    def get_batch(self):
+        """ Set-up operations to create batches"""
+
+        with tf.name_scope('batch_loader'):
+            img_data, label_data = self._network.data_queue.dequeue_many(n=self._network.num_data_dequeue, name='data_dequeue_op')
+
+            pos_data_idx = tf.where(label_data[:, 1] > 0)[:, 0]
+
+            pos_img_data = tf.gather(img_data, pos_data_idx)
+            pos_label_data = tf.gather(label_data, pos_data_idx)
+
+            # get number of negative indices to ensure desired pos-neg split
+            neg_data_idx = tf.where(label_data[:, 0] > 0)[:, 0]
+            num_neg = tf.cast((1.0 - self._network.pos_train_frac) * tf.cast(tf.shape(pos_img_data)[0], dtype=tf.float32), dtype=tf.int32)
+
+            # get indices of negative data-points
+            num_neg = tf.minimum(num_neg, tf.shape(neg_data_idx)[0])
+            neg_data_idx = tf.random_uniform([num_neg], 0, tf.shape(neg_data_idx)[0], dtype=tf.int32)
+
+            # get negative indices
+            neg_img_data = tf.gather(img_data, neg_data_idx)
+            neg_label_data = tf.gather(label_data, neg_data_idx)
+
+            imgs = tf.concat([pos_img_data, neg_img_data], axis=0)
+            labels = tf.concat([pos_label_data, neg_label_data], axis=0)
+
+            # shuffle data
+            num_data_points = tf.shape(imgs)[0]
+            data_idx = tf.random_shuffle(tf.range(0, num_data_points, delta=1))
+
+            imgs = tf.gather(imgs, data_idx)
+            labels = tf.gather(labels, data_idx)
+
+        return imgs, labels
+
 
     def load_data(self):
-        """"""
+        """ Load data from numpy files"""
 
-        filename_idx = xrange(np.shape(self.img_filenames)[0])
+        # get filename to load
+        file_id = np.random.choice(np.shape(self.img_filenames)[0], size=1)
+        img_filename = self.img_filenames[file_id]
+        label_filename = self.label_filenames[file_id]
 
-        img_batch = np.empty(self.img_shape)
-        label_batch = np.empty(self.label_shape)
+        # load data files
+        imgs = np.load(os.path.join(self._network.dataset_dir, img_filename))['arr_0']
+        labels = np.load(os.path.join(self._network.dataset_dir, label_filename))['arr_0']
 
-        data_in_batch = 0
-        while data_in_batch < self._network.batch_size:
+        # get data-point indices assigned for training
+        train_idx = self.train_index_map[img_filename]
+        np.random.shuffle(train_idx)
 
-            # load next file
-            file_id = np.random.choice(filename_idx, size=1)[0]
-            # load new data
-            imgs = np.load(os.path.join(self._network.dataset_dir, self.img_filenames[file_id]))['arr_0']
-            labels = np.load(os.path.join(self._network.dataset_dir, self.label_filenames[file_id]))['arr_0']
+        # get training data-points
+        train_imgs = imgs[train_idx]
+        train_labels = labels[train_idx]
 
-            # get indices of positive examples
-            pos_indx = np.where(labels[:, 1] > 0)[0]
-            num_pos = np.shape(pos_indx)[0]
+        # copy 1st channel into 2nd and 3rd
+        train_imgs = np.repeat(train_imgs, self._network.img_channels, axis=self._network.img_channels)
 
-            # get positive examples
-            pos_imgs = imgs[pos_indx]
-            pos_labels = labels[pos_indx]
-
-            # get all negative examples
-            neg_imgs = np.delete(imgs, pos_indx, axis=0)
-            neg_labels = np.delete(labels, pos_indx, axis=0)
-            num_neg = np.shape(neg_imgs)[0]
-
-            if num_neg >= num_pos:
-                neg_idx = np.random.choice(xrange(num_neg), num_pos, replace=False)
-            else:
-                neg_idx = np.random.choice(xrange(num_neg), num_neg, replace=False)
-
-            # get as many negative examples as positive
-            neg_imgs = neg_imgs[neg_idx]
-            neg_labels = neg_labels[neg_idx]
-
-            pos_imgs = np.repeat(pos_imgs, self._network.img_channels, axis=self._network.img_channels)
-            neg_imgs = np.repeat(neg_imgs, self._network.img_channels, axis=self._network.img_channels)
-
-            curr_imgs = np.concatenate((pos_imgs, neg_imgs))
-            curr_labels = np.concatenate((pos_labels, neg_labels))
-
-            num_curr_imgs = np.shape(curr_imgs)[0]
-            if num_curr_imgs > 10:
-                subsample_idx = np.random.choice(range(num_curr_imgs), size=10)
-            elif num_curr_imgs > 0:
-                subsample_idx = np.random.choice(range(num_curr_imgs), size=num_curr_imgs)
-            else:
-                continue
-
-            curr_imgs = curr_imgs[subsample_idx]
-            curr_labels = curr_labels[subsample_idx]
-
-            # add to batch
-            img_batch = np.append(img_batch, curr_imgs, axis=0)
-            label_batch = np.append(label_batch, curr_labels, axis=0)
-
-            data_in_batch = np.shape(img_batch)[0]
-
-        batch_idx = np.random.choice(range(np.shape(img_batch)[0]), self._network.batch_size)
-        np.random.shuffle(batch_idx)
-
-        img_batch = img_batch[batch_idx]
-        label_batch = label_batch[batch_idx]
-
-        return [img_batch.astype(np.float32), label_batch.astype(np.float32)]
+        return [train_imgs.astype(np.float32), train_labels.astype(np.float32)]
 
 
     ###### DEBUG CODE ######

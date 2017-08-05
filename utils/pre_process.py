@@ -162,12 +162,12 @@ class DataLoader(object):
             label_data = np.load(label_file_path)['arr_0']
 
             # get data-point indices assigned for training
-            train_idx = self.val_index_map[img_filename]
-            np.random.shuffle(train_idx)
+            val_idx = self.val_index_map[img_filename]
+            np.random.shuffle(val_idx)
 
             # remove validation data-points
-            img_data = img_data[train_idx]
-            label_data = label_data[train_idx]
+            img_data = img_data[val_idx]
+            label_data = label_data[val_idx]
 
             # copy first channel into all three (for compatibility with AlexNet)
             img_data = np.repeat(img_data, self._network.img_channels, axis=self._network.img_channels)

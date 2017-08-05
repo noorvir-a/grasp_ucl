@@ -452,6 +452,9 @@ class GUANt(object):
         self.data_enqueue_threads = qr_data.create_threads(self.sess, coord=coord, start=True)
         self.batch_enqueue_threads = qr_batch.create_threads(self.sess, coord=coord, start=True)
 
+        logging.info('Waiting 60 seconds to load queues')
+        time.sleep(60)
+
         logging.info('Starting Optimisation')
 
         # total training steps

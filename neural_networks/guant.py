@@ -528,8 +528,9 @@ class GUANt(object):
                         self.sess.run(optimiser)
 
                     else:
+                        logging.info('time= %.5f' % (time.time() - st))
                         d, b = self.sess.run([self.data_queue_size_op, self.batch_queue_size_op])
-                        logging.info('queue sizes before run = %d, %d, time=%.5f' % (d, b, time.time()-st))
+                        logging.info('queue sizes before run = %d, %d' % (d, b))
 
                         run_vars = [optimiser, self.loss, self.accuracy_op, self.network_output, self.prediction_outcome,
                                     self.data_queue_size_op, self.batch_queue_size_op, self.merged_train_summaries]

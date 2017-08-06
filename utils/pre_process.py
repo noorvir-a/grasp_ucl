@@ -154,14 +154,13 @@ class DataLoader(object):
             neg_label_data = tf.gather(label_data, neg_data_idx)
 
             # get number of negative indices to ensure desired pos-neg split
-            neg_data_idx = tf.where(label_data[:, 0] > 0)[:, 0]
             num_neg_multipler = (1.0 - self._network.pos_train_frac)/self._network.pos_train_frac
             num_neg = tf.cast(num_neg_multipler * tf.cast(tf.shape(pos_img_data)[0], dtype=tf.float32), dtype=tf.int32)
 
             # get indices of negative data-points
             num_neg = tf.minimum(num_neg, tf.shape(neg_data_idx)[0])
             num_neg = tf.maximum(num_neg, 1)                        # TODO: really ugly hack for when num_neg =0 . change this
-            neg_data_idx = tf.random_uniform([num_neg], 0, num_neg,  dtype=tf.int32)
+            neg_data_idx = tf.random_uniform([num_neg], 0, tf.shape(neg_data_idx)[0],  dtype=tf.int32)
 
             # get negative indices
             neg_img_data = tf.gather(neg_img_data, neg_data_idx)

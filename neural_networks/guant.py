@@ -492,6 +492,8 @@ class GUANt(object):
         tf.train.add_queue_runner(qr_val_data)
         tf.train.add_queue_runner(qr_val_batch)
 
+        self._graph.finalize()
+
         # create and start threads
         self.train_data_enqueue_threads = qr_train_data.create_threads(self.sess, coord=coord, start=True)
         self.train_batch_enqueue_threads = qr_train_batch.create_threads(self.sess, coord=coord, start=True)
@@ -499,7 +501,6 @@ class GUANt(object):
         self.val_data_enqueue_threads = qr_val_data.create_threads(self.sess, coord=coord, start=True)
         self.val_batch_enqueue_threads = qr_val_batch.create_threads(self.sess, coord=coord, start=True)
 
-        self._graph.finalize()
 
         logging.info('Waiting 60 seconds to load queues')
         time.sleep(60)
@@ -512,6 +513,7 @@ class GUANt(object):
         # print trainable variables
         logging.info('Variables to be trained: %s' % str([var.name.split(':')[0] for var in tf.trainable_variables()]))
 
+        st = time.time()
         with tf.device('/gpu:0'):
             # iterate over training epochs
             for epoch in xrange(1, self.config['num_epochs'] + 1):
@@ -526,10 +528,21 @@ class GUANt(object):
                         self.sess.run(optimiser)
 
                     else:
+                        d, b = self.sess.run([self.data_queue_size_op, self.batch_queue_size_op])
+                        logging.info('queue sizes before run = %d, %d, time=%.5f' % (d, b, time.time()-st))
+
                         run_vars = [optimiser, self.loss, self.accuracy_op, self.network_output, self.prediction_outcome,
                                     self.data_queue_size_op, self.batch_queue_size_op, self.merged_train_summaries]
 
+                        st_gpu = time.time()
                         _, loss, self.train_accuracy, output, prediction_outcome, data_queue_size, batch_queue_size, training_summaries = self.sess.run(run_vars)
+
+                        logging.info('gpu_time= %.5f' % (time.time()-st_gpu))
+
+                        d, b = self.sess.run([self.data_queue_size_op, self.batch_queue_size_op])
+
+                        logging.info('queue sizes after run = %d, %d' % (d, b))
+                        st = time.time()
 
                         logging.info(self.get_date_time() + ': epoch = %d, batch = %d, accuracy = %.3f, loss = %.3f, data_queue_size = %d, batch_queue_size = %d'
                                      % (epoch, batch, self.train_accuracy, loss, data_queue_size, batch_queue_size))

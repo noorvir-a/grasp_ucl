@@ -548,7 +548,9 @@ class GUANt(object):
                                      % (epoch, batch, self.train_accuracy, loss, data_queue_size, batch_queue_size))
 
                         # log summaries
+                        sum_st = time.time()
                         self.summariser.add_summary(training_summaries, step)
+                        logging.info('Time to add summary = %.5f' % (time.time() - sum_st))
 
                     # ---------------------------------
                     # 2. validate

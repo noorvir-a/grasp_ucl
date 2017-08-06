@@ -85,13 +85,9 @@ class DataLoader(object):
 
             # get image files
             self.img_filenames = [f for f in all_filenames if f.find(self.filename_templates['depth_imgs']) > -1]
-            # get pose files
-            # self.pose_filenames = [f for f in all_filenames if f.find(ImageFileTemplates.hand_poses_template) > -1]
-            # get label files
             self.label_filenames = [f for f in all_filenames if f.find(self.filename_templates['labels']) > -1]
 
             self.img_filenames.sort(key=lambda x: int(x[-9:-4]))
-            # self.pose_filenames.sort(key=lambda x: int(x[-9:-4]))
             self.label_filenames.sort(key=lambda x: int(x[-9:-4]))
 
             # randomly choose files for training and validation
@@ -140,118 +136,36 @@ class DataLoader(object):
             pkl.dump(val_data, open(self.val_map_path, 'w'))
 
 
-    # TODO: make one method out of this and get_next_val_batch
-    def get_next_val_batch(self):
-        """ Get next validation batch """
-
-        # get next batch from loaded array. if the array length is smaller than batch size, load next file and append to array
-        while len(self.img_val_data_buffer) < self._network.batch_size:
-            # load next file
-
-            file_id = np.random.choice(len(self.img_filenames), size=1)[0]
-            img_filename = self.img_filenames[file_id]
-            label_filename = self.label_filenames[file_id]
-
-            # create file-paths
-            img_file_path = os.path.join(self._network.dataset_dir, img_filename)
-            label_file_path = os.path.join(self._network.dataset_dir, label_filename)
-
-            # load new data
-            # TODO: Convert labels to binary
-            img_data = np.load(img_file_path)['arr_0']
-            label_data = np.load(label_file_path)['arr_0']
-
-            # get data-point indices assigned for training
-            val_idx = self.val_index_map[img_filename]
-            np.random.shuffle(val_idx)
-
-            # remove validation data-points
-            img_data = img_data[val_idx]
-            label_data = label_data[val_idx]
-
-            # copy first channel into all three (for compatibility with AlexNet)
-            img_data = np.repeat(img_data, self._network.img_channels, axis=self._network.img_channels)
-
-            # add new data to buffers
-            self.img_val_data_buffer = np.concatenate((self.img_val_data_buffer, img_data), axis=0)
-            self.label_val_data_buffer = np.concatenate((self.label_val_data_buffer, label_data), axis=0)
-
-        img_batch = self.img_val_data_buffer[:self._network.batch_size]
-        label_batch = self.label_val_data_buffer[:self._network.batch_size]
-
-        # remove batch from buffers
-        self.img_val_data_buffer = np.delete(self.img_val_data_buffer, np.s_[:self._network.batch_size], axis=0)
-        self.label_val_data_buffer = np.delete(self.label_val_data_buffer, np.s_[:self._network.batch_size], axis=0)
-
-        return img_batch, label_batch
-
-
-    def get_next_batch(self):
-        """ Get the next batch of training data"""
-
-        # if the buffer length is smaller than batch size, load next file
-        while len(self.img_data_buffer) < self._network.batch_size:
-            # load next file
-
-            file_id = np.random.choice(len(self.img_filenames), size=1)[0]
-            img_filename = self.img_filenames[file_id]
-            label_filename = self.label_filenames[file_id]
-
-            # create file-paths
-            img_file_path = os.path.join(self._network.dataset_dir, img_filename)
-            label_file_path = os.path.join(self._network.dataset_dir, label_filename)
-
-            # load new data
-            # TODO: Convert labels to binary
-            img_data = np.load(img_file_path)['arr_0']
-            label_data = np.load(label_file_path)['arr_0']
-
-            # get data-point indices assigned for training
-            train_idx = self.train_index_map[img_filename]
-            np.random.shuffle(train_idx)
-
-            # remove validation data-points
-            img_data = img_data[train_idx]
-            label_data = label_data[train_idx]
-
-            # copy first channel into all three (for compatibility with AlexNet)
-            img_data = np.repeat(img_data, self._network.img_channels, axis=self._network.img_channels)
-
-            # add new data to buffers
-            self.img_data_buffer = np.concatenate((self.img_data_buffer, img_data), axis=0)
-            self.label_data_buffer = np.concatenate((self.label_data_buffer, label_data), axis=0)
-
-        img_batch = self.img_data_buffer[:self._network.batch_size]
-        label_batch = self.label_data_buffer[:self._network.batch_size]
-
-        # remove batch from buffers
-        self.img_data_buffer = np.delete(self.img_data_buffer, np.s_[:self._network.batch_size], axis=0)
-        self.label_data_buffer = np.delete(self.label_data_buffer, np.s_[:self._network.batch_size], axis=0)
-
-        return img_batch, label_batch
-
-    def get_batch(self):
+    def get_train_data(self):
         """ Set-up operations to create batches"""
 
-        with tf.name_scope('batch_loader'):
-            img_data, label_data = self._network.data_queue.dequeue_many(n=self._network.num_data_dequeue, name='data_dequeue_op')
+        with tf.name_scope('train_data_queue'):
+            img_data, label_data = self._network.train_data_queue.dequeue_many(n=self._network.num_train_data_dequeue, name='dequeue_op')
 
+        with tf.name_scope('train_batch_loader'):
             pos_data_idx = tf.where(label_data[:, 1] > 0)[:, 0]
+            neg_data_idx = tf.where(label_data[:, 0] > 0)[:, 0]
 
+            # get positive data-points
             pos_img_data = tf.gather(img_data, pos_data_idx)
             pos_label_data = tf.gather(label_data, pos_data_idx)
 
+            neg_img_data = tf.gather(img_data, neg_data_idx)
+            neg_label_data = tf.gather(label_data, neg_data_idx)
+
             # get number of negative indices to ensure desired pos-neg split
             neg_data_idx = tf.where(label_data[:, 0] > 0)[:, 0]
-            num_neg = tf.cast((1.0 - self._network.pos_train_frac) * tf.cast(tf.shape(pos_img_data)[0], dtype=tf.float32), dtype=tf.int32)
+            num_neg_multipler = (1.0 - self._network.pos_train_frac)/self._network.pos_train_frac
+            num_neg = tf.cast(num_neg_multipler * tf.cast(tf.shape(pos_img_data)[0], dtype=tf.float32), dtype=tf.int32)
 
             # get indices of negative data-points
             num_neg = tf.minimum(num_neg, tf.shape(neg_data_idx)[0])
-            neg_data_idx = tf.random_uniform([num_neg], 0, tf.shape(neg_data_idx)[0], dtype=tf.int32)
+            num_neg = tf.maximum(num_neg, 1)                        # TODO: really ugly hack for when num_neg =0 . change this
+            neg_data_idx = tf.random_uniform([num_neg], 0, num_neg,  dtype=tf.int32)
 
             # get negative indices
-            neg_img_data = tf.gather(img_data, neg_data_idx)
-            neg_label_data = tf.gather(label_data, neg_data_idx)
+            neg_img_data = tf.gather(neg_img_data, neg_data_idx)
+            neg_label_data = tf.gather(neg_label_data, neg_data_idx)
 
             imgs = tf.concat([pos_img_data, neg_img_data], axis=0)
             labels = tf.concat([pos_label_data, neg_label_data], axis=0)
@@ -266,7 +180,49 @@ class DataLoader(object):
         return imgs, labels
 
 
-    def load_data(self):
+    def get_val_data(self):
+        """ """
+        with tf.name_scope('val_data_queue'):
+            img_data, label_data = self._network.val_data_queue.dequeue_many(n=self._network.num_val_data_dequeue, name='dequeue_op')
+
+        with tf.name_scope('val_batch_loader'):
+            pos_data_idx = tf.where(label_data[:, 1] > 0)[:, 0]
+            neg_data_idx = tf.where(label_data[:, 0] > 0)[:, 0]
+
+            # get positive data-points
+            pos_img_data = tf.gather(img_data, pos_data_idx)
+            pos_label_data = tf.gather(label_data, pos_data_idx)
+
+            neg_img_data = tf.gather(img_data, neg_data_idx)
+            neg_label_data = tf.gather(label_data, neg_data_idx)
+
+            # get number of negative indices to ensure desired pos-neg split
+            num_neg_multipler = (1.0 - self._network.pos_train_frac)/self._network.pos_train_frac
+            num_neg = tf.cast(num_neg_multipler * tf.cast(tf.shape(pos_img_data)[0], dtype=tf.float32), dtype=tf.int32)
+
+            # get indices of negative data-points
+            num_neg = tf.minimum(num_neg, tf.shape(neg_data_idx)[0])
+            num_neg = tf.maximum(num_neg, 1)                        # TODO: really ugly hack for when num_neg =0 . change this
+            neg_data_idx = tf.random_uniform([num_neg], 0, tf.shape(neg_data_idx)[0], dtype=tf.int32)
+
+            # get negative indices
+            neg_img_data = tf.gather(neg_img_data, neg_data_idx)
+            neg_label_data = tf.gather(neg_label_data, neg_data_idx)
+
+            imgs = tf.concat([pos_img_data, neg_img_data], axis=0)
+            labels = tf.concat([pos_label_data, neg_label_data], axis=0)
+
+            # shuffle data
+            num_data_points = tf.shape(imgs)[0]
+            data_idx = tf.random_shuffle(tf.range(0, num_data_points, delta=1))
+
+            imgs = tf.gather(imgs, data_idx)
+            labels = tf.gather(labels, data_idx)
+
+        return imgs, labels
+
+
+    def load_train_data(self):
         """ Load data from numpy files"""
 
         # get filename to load
@@ -278,7 +234,7 @@ class DataLoader(object):
         imgs = np.load(os.path.join(self._network.dataset_dir, img_filename))['arr_0']
         labels = np.load(os.path.join(self._network.dataset_dir, label_filename))['arr_0']
 
-        # get data-point indices assigned for training
+        # get data-point indices assigned for training and validation
         train_idx = self.train_index_map[img_filename]
         np.random.shuffle(train_idx)
 
@@ -290,6 +246,32 @@ class DataLoader(object):
         train_imgs = np.repeat(train_imgs, self._network.img_channels, axis=self._network.img_channels)
 
         return [train_imgs.astype(np.float32), train_labels.astype(np.float32)]
+
+
+    def load_val_data(self):
+        """ Load data from numpy files"""
+
+        # get filename to load
+        file_id = np.random.choice(np.shape(self.img_filenames)[0], size=1)
+        img_filename = self.img_filenames[file_id]
+        label_filename = self.label_filenames[file_id]
+
+        # load data files
+        imgs = np.load(os.path.join(self._network.dataset_dir, img_filename))['arr_0']
+        labels = np.load(os.path.join(self._network.dataset_dir, label_filename))['arr_0']
+
+        # get data-point indices assigned for training and validation
+        val_idx = self.val_index_map[img_filename]
+        np.random.shuffle(val_idx)
+
+        # get validation data-points
+        val_imgs = imgs[val_idx]
+        val_labels = labels[val_idx]
+
+        # copy 1st channel into 2nd and 3rd
+        val_imgs = np.repeat(val_imgs, self._network.img_channels, axis=self._network.img_channels)
+
+        return [val_imgs.astype(np.float32), val_labels.astype(np.float32)]
 
 
     ###### DEBUG CODE ######

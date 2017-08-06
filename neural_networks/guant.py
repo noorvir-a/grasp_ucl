@@ -56,11 +56,17 @@ class GUANt(object):
         self.datapoints_per_file = self.config['datapoints_per_file']
 
         # queues
-        self.num_data_dequeue = self.config['num_data_dequeue']
-        self.data_queue_capacity = self.config['data_queue_capacity']
-        self.batch_queue_capacity = self.config['batch_queue_capacity']
-        self.num_data_enqueue_threads = self.config['num_data_enqueue_threads']
-        self.num_batch_enqueue_threads = self.config['num_batch_enqueue_threads']
+        self.train_data_queue_capacity = self.config['train_data_queue_capacity']
+        self.train_batch_queue_capacity = self.config['train_batch_queue_capacity']
+        self.num_train_data_dequeue = self.config['num_train_data_dequeue']
+        self.num_train_data_enqueue_threads = self.config['num_train_data_enqueue_threads']
+        self.num_train_batch_enqueue_threads = self.config['num_train_batch_enqueue_threads']
+
+        self.val_data_queue_capacity = self.config['val_data_queue_capacity']
+        self.val_batch_queue_capacity = self.config['val_batch_queue_capacity']
+        self.num_val_data_dequeue = self.config['num_val_data_dequeue']
+        self.num_val_data_enqueue_threads = self.config['num_val_data_enqueue_threads']
+        self.num_val_batch_enqueue_threads = self.config['num_val_batch_enqueue_threads']
 
         # training params
         self.val_frequency = self.config['val_frequency']
@@ -123,13 +129,13 @@ class GUANt(object):
 
         # L2-loss
         if self.config['loss'] == 'l2':
-            return tf.nn.l2_loss(tf.subtract(self.network_output, self.label_node))
+            return tf.nn.l2_loss(tf.subtract(self.network_output, self.train_label_node))
         # sparse cross-entropy
         elif self.config['loss'] == 'sparse':
-            return tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(labels=self.label_node, logits=self.network_output))
+            return tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(labels=self.train_label_node, logits=self.network_output))
         # cross-entropy loss
         elif self.config['loss'] == 'xentropy':
-            return tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(labels=self.label_node, logits=self.network_output))
+            return tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(labels=self.train_label_node, logits=self.network_output))
         # weighted cross-entropy loss
         elif self.config['loss'] == 'wxentropy':
 
@@ -141,7 +147,7 @@ class GUANt(object):
 
             # weight training samples based on the distribution of classes in the training data-set
             class_weights = tf.constant([weights_ratio, 1 - weights_ratio])
-            labels = tf.multiply(self.label_node, class_weights)
+            labels = tf.multiply(self.train_label_node, class_weights)
 
             return tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(labels=labels,
                                                                           logits=self.network_output))
@@ -272,26 +278,57 @@ class GUANt(object):
         self.sess = self._open_session()
         self._tensorflow_initialised = True
 
-        # setup queue to load data from file into buffer
-        with tf.name_scope('data_queue'):
-            self.data_queue = tf.RandomShuffleQueue(self.data_queue_capacity, 0, dtypes=[tf.float32, tf.float32],
-                                                    shapes=[[self.img_width, self.img_height, self.img_channels],
-                                                            [self.num_classes]])
-
+        with tf.name_scope('train_data_loader'):
             # wrap python function to load data from numpy files
-            train_imgs, train_labels = tf.py_func(self.loader.load_data, inp=[], Tout=[tf.float32, tf.float32])
-            self.data_enqueue_op = self.data_queue.enqueue_many([train_imgs, train_labels], name='enqueue_op')
-            self.data_queue_size_op = self.data_queue.size()
+            train_imgs, train_labels = tf.py_func(self.loader.load_train_data, inp=[], Tout=[tf.float32, tf.float32])
 
-        # setup operations to queue data into batches from from data_queue
-        with tf.name_scope('batch_queue'):
-            self.batch_queue = tf.FIFOQueue(self.batch_queue_capacity, [tf.float32, tf.float32],
-                                            shapes=[[self.img_width, self.img_height, self.img_channels], [self.num_classes]])
+        with tf.name_scope('val_data_loader'):
+            # wrap python function to load data from numpy files
+            val_imgs, val_labels = tf.py_func(self.loader.load_val_data, inp=[], Tout=[tf.float32, tf.float32])
 
-            imgs, labels = self.loader.get_batch()
-            self.batch_enqueue_op = self.batch_queue.enqueue_many([imgs, labels], name='enqueue_op')
-            self.input_node, self.label_node = self.batch_queue.dequeue_many(n=self.batch_size, name='dequeue_op')
-            self.batch_queue_size_op = self.batch_queue.size()
+        # ---------------------------------
+        # 1. Training Queues
+        # ---------------------------------
+        # queue to load data from file into training buffer
+        with tf.name_scope('train_data_queue'):
+            self.train_data_queue = tf.RandomShuffleQueue(self.train_data_queue_capacity, 0, dtypes=[tf.float32, tf.float32],
+                                                          shapes=[[self.img_width, self.img_height, self.img_channels],
+                                                          [self.num_classes]], name='train_data_queue')
+
+            self.train_data_enqueue_op = self.train_data_queue.enqueue_many([train_imgs, train_labels], name='enqueue_op')
+            self.data_queue_size_op = self.train_data_queue.size()
+
+        # queue data into batches from from buffer
+        with tf.name_scope('train_batch_queue'):
+            self.train_batch_queue = tf.FIFOQueue(self.train_batch_queue_capacity, [tf.float32, tf.float32],
+                                                  shapes=[[self.img_width, self.img_height, self.img_channels], [self.num_classes]])
+
+            train_batch_imgs, train_batch_labels = self.loader.get_train_data()
+            self.train_batch_enqueue_op = self.train_batch_queue.enqueue_many([train_batch_imgs, train_batch_labels], name='enqueue_op')
+            self.train_input_node, self.train_label_node = self.train_batch_queue.dequeue_many(n=self.batch_size, name='dequeue_op')
+            self.batch_queue_size_op = self.train_batch_queue.size()
+
+        # ---------------------------------
+        # 2. Validation Queues
+        # ---------------------------------
+        # queue to load data from file into validation buffer
+        with tf.name_scope('val_data_queue'):
+            # validation data queue
+            self.val_data_queue = tf.RandomShuffleQueue(self.val_data_queue_capacity, 0, dtypes=[tf.float32, tf.float32],
+                                                        shapes=[[self.img_width, self.img_height, self.img_channels],
+                                                        [self.num_classes]], name='val_data_queue')
+
+            self.val_data_enqueue_op = self.val_data_queue.enqueue_many([val_imgs, val_labels], name='enqueue_op')
+
+        # queue data into batches from from buffer
+        with tf.name_scope('val_batch_queue'):
+            self.val_batch_queue = tf.FIFOQueue(self.val_batch_queue_capacity, [tf.float32, tf.float32],
+                                                shapes=[[self.img_width, self.img_height, self.img_channels],
+                                                        [self.num_classes]])
+
+            val_batch_imgs, val_batch_labels = self.loader.get_val_data()
+            self.val_batch_enqueue_op = self.val_batch_queue.enqueue_many([val_batch_imgs, val_batch_labels], name='enqueue_op')
+            self.val_input_node, self.val_label_node = self.val_batch_queue.dequeue_many(n=self.batch_size, name='dequeue_op')
 
 
     def _init_metric_ops(self):
@@ -299,7 +336,7 @@ class GUANt(object):
 
         # setup accuracy
         with tf.name_scope('accuracy_op'):
-            self.prediction_outcome = tf.equal(tf.argmax(self.network_output, axis=1), tf.argmax(self.label_node, axis=1),
+            self.prediction_outcome = tf.equal(tf.argmax(self.network_output, axis=1), tf.argmax(self.train_label_node, axis=1),
                                                name='prediction_outcome')
             self.accuracy_op = tf.reduce_mean(tf.cast(self.prediction_outcome, tf.float32), name='accuracy_op')
 
@@ -380,7 +417,7 @@ class GUANt(object):
 
         self._get_data_metrics()
 
-        self.network_output = self.create_network(self.input_node)
+        self.network_output = self.create_network(self.train_input_node)
 
         # init validation network
         self._get_predition_network()
@@ -441,16 +478,28 @@ class GUANt(object):
 
         # use multiple threads to load data
         coord = tf.train.Coordinator()
-        qr_data = tf.train.QueueRunner(self.data_queue, [self.data_enqueue_op] * self.num_data_enqueue_threads)
-        qr_batch = tf.train.QueueRunner(self.batch_queue, [self.batch_enqueue_op] * self.num_batch_enqueue_threads)
+
+        # training-data threads
+        qr_train_data = tf.train.QueueRunner(self.train_data_queue, [self.train_data_enqueue_op] * self.num_train_data_enqueue_threads)
+        qr_train_batch = tf.train.QueueRunner(self.train_batch_queue, [self.train_batch_enqueue_op] * self.num_train_batch_enqueue_threads)
+        # validation-data threads
+        qr_val_data = tf.train.QueueRunner(self.val_data_queue, [self.val_data_enqueue_op] * self.num_val_data_enqueue_threads)
+        qr_val_batch = tf.train.QueueRunner(self.val_batch_queue, [self.val_batch_enqueue_op] * self.num_val_batch_enqueue_threads)
 
         # add QueueRunners to default collection
-        tf.train.add_queue_runner(qr_data)
-        tf.train.add_queue_runner(qr_batch)
+        tf.train.add_queue_runner(qr_train_data)
+        tf.train.add_queue_runner(qr_train_batch)
+        tf.train.add_queue_runner(qr_val_data)
+        tf.train.add_queue_runner(qr_val_batch)
 
         # create and start threads
-        self.data_enqueue_threads = qr_data.create_threads(self.sess, coord=coord, start=True)
-        self.batch_enqueue_threads = qr_batch.create_threads(self.sess, coord=coord, start=True)
+        self.data_enqueue_threads = qr_train_data.create_threads(self.sess, coord=coord, start=True)
+        self.batch_enqueue_threads = qr_train_batch.create_threads(self.sess, coord=coord, start=True)
+
+        self.data_enqueue_threads = qr_val_data.create_threads(self.sess, coord=coord, start=True)
+        self.batch_enqueue_threads = qr_val_batch.create_threads(self.sess, coord=coord, start=True)
+
+        self._graph.finalize()
 
         logging.info('Waiting 60 seconds to load queues')
         time.sleep(60)
@@ -466,33 +515,39 @@ class GUANt(object):
         with tf.device('/gpu:0'):
             # iterate over training epochs
             for epoch in xrange(1, self.config['num_epochs'] + 1):
-
                 # iterate over all batches
                 for batch in xrange(1, batches_per_epoch + 1):
 
                     # ---------------------------------
                     # 1. optimise
                     # ---------------------------------
-                    # variables to run
-                    run_vars = [optimiser, self.loss, self.accuracy_op, self.network_output, self.prediction_outcome,
-                                 self.data_queue_size_op, self.batch_queue_size_op, self.merged_train_summaries]
+                    if batch % self.log_frequency != 0:
+                        # only run optimiser for max speed
+                        self.sess.run(optimiser)
 
-                    # TODO: dequeue data only once instead of three times
-                    run_op_outupt = self.sess.run(run_vars)
-                    # outputs of run op
-                    _, loss, self.train_accuracy, output, prediction_outcome, data_queue_size, batch_queue_size, training_summaries = run_op_outupt
+                    else:
+                        run_vars = [optimiser, self.loss, self.accuracy_op, self.network_output, self.prediction_outcome,
+                                    self.data_queue_size_op, self.batch_queue_size_op, self.merged_train_summaries]
+
+                        _, loss, self.train_accuracy, output, prediction_outcome, data_queue_size, batch_queue_size, training_summaries = self.sess.run(run_vars)
+
+                        logging.info(self.get_date_time() + ': epoch = %d, batch = %d, accuracy = %.3f, loss = %.3f, data_queue_size = %d, batch_queue_size = %d'
+                                     % (epoch, batch, self.train_accuracy, loss, data_queue_size, batch_queue_size))
+
+                        # log summaries
+                        self.summariser.add_summary(training_summaries, step)
 
                     # ---------------------------------
                     # 2. validate
                     # ---------------------------------
                     if batch % self.val_frequency == 0:
-
-                        # get data
-                        input_batch, label_batch = self.loader.get_next_val_batch()
-                        val_accuracy, val_error, _ = self.predict(input_batch, label_batch)
-
                         logging.info('------------------------------------------------')
                         logging.info(self.get_date_time() + ': Validating Network ... ')
+
+                        # get data
+                        input_batch, label_batch = self.sess.run([self.val_input_node, self.val_label_node])
+                        val_accuracy, val_error, _ = self.predict(input_batch, label_batch)
+
                         logging.info(self.get_date_time() + ': epoch = %d, batch = %d, validation accuracy = %.3f' % (epoch, batch, val_accuracy))
                         logging.info('------------------------------------------------')
 
@@ -500,14 +555,6 @@ class GUANt(object):
                         summary = self.sess.run(self.merged_val_summaries, feed_dict={self._pred_input_node: input_batch,
                                                                                       self._pred_label_node: label_batch})
                         self.summariser.add_summary(summary, step)
-
-                    # log
-                    if batch % self.log_frequency == 0:
-                        logging.info(self.get_date_time() + ': epoch = %d, batch = %d, accuracy = %.3f, loss = %.3f, data_queue_size = %d, batch_queue_size = %d'
-                                     % (epoch, batch, self.train_accuracy, loss, data_queue_size, batch_queue_size))
-
-                        # log summaries
-                        self.summariser.add_summary(training_summaries, step)
 
                     # save
                     if batch % self.save_frequency == 0:
@@ -521,7 +568,7 @@ class GUANt(object):
                         self.saver.save(self.sess, checkpoint_path)
                         self.saver.save(self.sess, latest_checkpoint_path)
 
-                    step += 1
+                    step += self.batch_size
 
             coord.request_stop()
             coord.join(self.data_enqueue_threads)

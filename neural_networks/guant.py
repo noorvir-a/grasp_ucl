@@ -523,15 +523,23 @@ class GUANt(object):
                     # ---------------------------------
                     # 1. optimise
                     # ---------------------------------
-                    if batch % self.log_frequency != 0:
+                    # if batch % self.log_frequency != 0:
+                    if True:
                         # only run optimiser for max speed
-                        st1 = time.time()
-                        _, d, b = self.sess.run([optimiser, self.data_queue_size_op, self.batch_queue_size_op])
-                        logging.info('queue sizes= %d, %d, time= %.5f' % (d, b, time.time() - st1))
-                    else:
-                        logging.info('time= %.5f' % (time.time() - st))
                         d, b = self.sess.run([self.data_queue_size_op, self.batch_queue_size_op])
                         logging.info('queue sizes before run = %d, %d' % (d, b))
+
+                        st1 = time.time()
+                        self.sess.run([self.train_input_node, self.train_label_node])
+                        # _, d, b = self.sess.run([optimiser])
+                        logging.info('time= %.5f' % (time.time() - st1))
+
+                        d, b = self.sess.run([self.data_queue_size_op, self.batch_queue_size_op])
+                        logging.info('queue sizes after run = %d, %d' % (d, b))
+
+                    else:
+                        d, b = self.sess.run([self.data_queue_size_op, self.batch_queue_size_op])
+                        logging.info('queue sizes before run = %d, %d, time=%.5f' % (d, b, time.time()-st))
 
                         run_vars = [optimiser, self.loss, self.accuracy_op, self.network_output, self.prediction_outcome,
                                     self.data_queue_size_op, self.batch_queue_size_op, self.merged_train_summaries]
@@ -539,20 +547,14 @@ class GUANt(object):
                         st_gpu = time.time()
                         _, loss, self.train_accuracy, output, prediction_outcome, data_queue_size, batch_queue_size, training_summaries = self.sess.run(run_vars)
 
-                        logging.info('gpu_time= %.5f' % (time.time()-st_gpu))
 
-                        d, b = self.sess.run([self.data_queue_size_op, self.batch_queue_size_op])
-
-                        logging.info('queue sizes after run = %d, %d' % (d, b))
                         st = time.time()
 
                         logging.info(self.get_date_time() + ': epoch = %d, batch = %d, accuracy = %.3f, loss = %.3f, data_queue_size = %d, batch_queue_size = %d'
                                      % (epoch, batch, self.train_accuracy, loss, data_queue_size, batch_queue_size))
 
                         # log summaries
-                        sum_st = time.time()
                         self.summariser.add_summary(training_summaries, step)
-                        logging.info('Time to add summary = %.5f' % (time.time() - sum_st))
 
                     # ---------------------------------
                     # 2. validate

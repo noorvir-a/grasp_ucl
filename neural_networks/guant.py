@@ -522,13 +522,12 @@ class GUANt(object):
                         self.sess.run([self.train_input_node, self.train_label_node])
 
                     else:
-                        run_vars = [optimiser, self.loss, self.accuracy_op, self.network_output, self.prediction_outcome,
-                                    self.merged_train_summaries]
+                        run_vars = [optimiser, self.loss, self.accuracy_op, self.merged_train_summaries, self.data_queue_size_op]
 
-                        _, loss, self.train_accuracy, output, prediction_outcome, training_summaries = self.sess.run(run_vars)
+                        _, loss, self.train_accuracy, training_summaries, queue_size = self.sess.run(run_vars)
 
-                        logging.info(self.get_date_time() + ': epoch = %d, batch = %d, accuracy = %.3f, loss = %.3f, time = %d'
-                                     % (epoch, batch, self.train_accuracy, loss, time.time() - st))
+                        logging.info(self.get_date_time() + ': epoch = %d, batch = %d, accuracy = %.3f, loss = %.3f, time = %.5f, queue_size = %d'
+                                     % (epoch, batch, self.train_accuracy, loss, time.time() - st, queue_size))
 
                         # log summaries
                         self.summariser.add_summary(training_summaries, step)

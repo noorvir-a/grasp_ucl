@@ -237,6 +237,8 @@ class DataLoader(object):
         train_idx = self.train_index_map[img_filename]
         np.random.shuffle(train_idx)
 
+        train_idx = train_idx[:200]
+
         # get training data-points
         train_imgs = imgs[train_idx]
         train_labels = labels[train_idx]

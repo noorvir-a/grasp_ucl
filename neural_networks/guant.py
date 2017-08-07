@@ -523,8 +523,7 @@ class GUANt(object):
                     # ---------------------------------
                     # 1. optimise
                     # ---------------------------------
-                    # if batch % self.log_frequency != 0:
-                    if True:
+                    if batch % self.log_frequency != 0:
                         # only run optimiser for max speed
                         d, b = self.sess.run([self.data_queue_size_op, self.batch_queue_size_op])
                         logging.info('queue sizes before run = %d, %d' % (d, b))

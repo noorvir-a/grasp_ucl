@@ -237,7 +237,10 @@ class DataLoader(object):
         train_idx = self.train_index_map[img_filename]
         np.random.shuffle(train_idx)
 
-        train_idx = train_idx[:200]
+        # only use a fraction of data from each file to ensure mixing
+        num_train = np.shape(train_idx)[0]
+        num_data_from_file = int(self._network.frac_datapoints_from_file * num_train)
+        train_idx = train_idx[:num_data_from_file]
 
         # get training data-points
         train_imgs = imgs[train_idx]
@@ -264,6 +267,11 @@ class DataLoader(object):
         # get data-point indices assigned for training and validation
         val_idx = self.val_index_map[img_filename]
         np.random.shuffle(val_idx)
+
+        # only use a fraction of data from each file to ensure mixing
+        num_val = np.shape(val_idx)[0]
+        num_data_from_file = int(self._network.frac_datapoints_from_file * num_val)
+        val_idx = val_idx[:num_data_from_file]
 
         # get validation data-points
         val_imgs = imgs[val_idx]

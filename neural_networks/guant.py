@@ -552,8 +552,8 @@ class GUANt(object):
                         logging.info('b_d = %d, a_d = %d, node_t = %.5f, size_t = %.5f' % (b_d, a_d, end2, end3))
 
                     else:
-                        d, b = self.sess.run([self.data_queue_size_op])#, self.batch_queue_size_op])
-                        logging.info('queue sizes before run = %d, %d, time=%.5f' % (d, b, time.time()-st))
+                        d = self.sess.run(self.data_queue_size_op)#, self.batch_queue_size_op])
+                        logging.info('queue sizes before run = %d, time=%.5f' % (d, time.time()-st))
 
                         run_vars = [optimiser, self.loss, self.accuracy_op, self.network_output, self.prediction_outcome,
                                     self.data_queue_size_op, self.merged_train_summaries]

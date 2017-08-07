@@ -305,6 +305,7 @@ class GUANt(object):
                                                                           self.train_batch_queue_capacity,
                                                                           num_threads=self.num_train_batch_enqueue_threads,
                                                                           capacity=self.train_batch_queue_capacity,
+                                                                          enqueue_many=True,
                                                                           shapes=[[self.img_width, self.img_height,
                                                                                    self.img_channels], [self.num_classes]])
 
@@ -512,7 +513,7 @@ class GUANt(object):
 
 
         logging.info('Waiting 60 seconds to load queues')
-        time.sleep(60)
+        # time.sleep(60)
 
         logging.info('Starting Optimisation')
 
@@ -535,19 +536,19 @@ class GUANt(object):
                     if batch % self.log_frequency != 0:
                         # only run optimiser for max speed
                         st1 = time.time()
-                        b_d, b_b = self.sess.run([self.data_queue_size_op])#, self.batch_queue_size_op])
+                        b_d = self.sess.run([self.data_queue_size_op])#, self.batch_queue_size_op])
                         end1 = time.time() - st1
 
                         st2 = time.time()
                         self.sess.run([self.train_input_node, self.train_label_node])
                         # _, d, b = self.sess.run([optimiser])
                         end2 = time.time() - st2
-                        
+
                         st3 = time.time()
-                        a_d, a_b = self.sess.run([self.data_queue_size_op])#, self.batch_queue_size_op])
+                        a_d = self.sess.run([self.data_queue_size_op])#, self.batch_queue_size_op])
                         end3 = end1 + time.time() - st3
                         
-                        logging.info('b_d = %d, b_b = %d, a_d = %d, a_b =  %d, node_t = %.5f, size_t = %.5f' % (b_d, b_b, a_d, a_b, end2, end3))
+                        logging.info('b_d = %d, a_d = %d, node_t = %.5f, size_t = %.5f' % (b_d, a_d, end2, end3))
 
                     else:
                         d, b = self.sess.run([self.data_queue_size_op])#, self.batch_queue_size_op])

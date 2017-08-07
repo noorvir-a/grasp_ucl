@@ -564,7 +564,7 @@ class GUANt(object):
                         self.saver.save(self.sess, checkpoint_path)
                         self.saver.save(self.sess, latest_checkpoint_path)
 
-                    step += self.batch_size
+                    step += 1
 
             coord.request_stop()
             coord.join(threads)

@@ -98,6 +98,83 @@ class UCLDatabaseGQCNN(object):
                                                                                  (time.time() - st_time)))
 
 
+    def shuffle_pre_existing_data(self):
+        """ Shuffles data in numpy files and saves them to new files"""
+
+        new_dataset_dir_path = '/home/noorvir/datasets/gqcnn/dexnet_mini_shuffled/'
+        img_data = np.empty([0, 32, 32, 1])
+        label_data = np.empty([0])
+        pose_data = np.empty([0, 4])
+
+        # depth image filenames
+        img_filenames = self.load_filenames(self.dataset_dir, 'depth_ims_tf_table', sort=True)
+        # robust ferrai_canny label filenames
+        label_filenames = self.load_filenames(self.dataset_dir, 'robust_ferrari_canny', sort=True)
+        # pose filenames
+        pose_filenames = self.load_filenames(self.dataset_dir, 'hand_poses', sort=True)
+
+        print('Loading images ...')
+        for i, filename in enumerate(img_filenames):
+            file_data = np.load(os.path.join(self.dataset_dir, filename))['arr_0']
+            img_data = np.concatenate((img_data, file_data), axis=0)
+
+            if i % 100 == 0:
+                print('Loading data from file number %d out of %d' % (i + 1, len(img_filenames)))
+
+        print('Loading labels ...')
+        for i, filename in enumerate(label_filenames):
+            file_data = np.load(os.path.join(self.dataset_dir, filename))['arr_0']
+            label_data = np.concatenate((label_data, file_data))
+
+            if i % 100 == 0:
+                print('Loading data from file number %d out of %d' % (i + 1, len(label_filenames)))
+
+        print('Loading poses ...')
+        for i, filename in enumerate(pose_filenames):
+            file_data = np.load(os.path.join(self.dataset_dir, filename))['arr_0']
+            pose_data = np.concatenate((pose_data, file_data), axis=0)
+
+            if i % 100 == 0:
+                print('Loading data from file number %d out of %d' % (i + 1, len(pose_filenames)))
+
+        num_data = np.shape(img_data)[0]
+
+        idx = range(num_data)
+        np.random.shuffle(idx)
+
+        # save to files
+        start_index = 0
+        end_index = self.config['num_points_per_file']
+        for i, img_filename in enumerate(img_filenames):
+
+            if end_index <= (num_data - 1):
+                curr_idx = idx[start_index:end_index]
+                start_index = end_index
+                end_index = end_index + self.config['num_points_per_file']
+
+            else:
+                curr_idx = idx[start_index:]
+
+            # get new data
+            imgs = img_data[curr_idx]
+            labels = label_data[curr_idx]
+            poses = pose_data[curr_idx]
+
+            # get new filenames
+            label_filename = label_filenames[i]
+            pose_filename = pose_filenames[i]
+
+            if i % 10 == 0:
+                print('Saving file %d of %d' % (i+1, np.shape(img_filenames)[0]))
+            np.savez_compressed(os.path.join(new_dataset_dir_path, img_filename), imgs)
+            np.savez_compressed(os.path.join(new_dataset_dir_path, label_filename), labels)
+            np.savez_compressed(os.path.join(new_dataset_dir_path, pose_filename), poses)
+
+        # save shuffling key
+        np.savez_compressed(os.path.join(new_dataset_dir_path, 'shuffle_key'), idx)
+
+
+
     def create_images(self, input_filename_template, output_filename_template):
         """ Modify existing images to the desired format"""
 
@@ -783,8 +860,9 @@ if __name__ == '__main__':
 
     # UCL_GQCNN
     ucl_gqcnn_db = UCLDatabaseGQCNN(gqcnn_config)
+    ucl_gqcnn_db.shuffle_pre_existing_data()
     # ucl_gqcnn_db.get_metric_stats()                 # get statistics about successful grasps
     # ucl_gqcnn_db.create_images('depth_ims_tf_table', 'depth_ims_stf_{}_table'.format(gqcnn_config['output_img_size']))
-    ucl_gqcnn_db.create_labels()                    # create one-hot labels for quality function
+    # ucl_gqcnn_db.create_labels()                    # create one-hot labels for quality function
     # ucl_gqcnn_db.visualise()
     pass

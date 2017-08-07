@@ -537,7 +537,7 @@ class GUANt(object):
                     if batch % self.log_frequency != 0:
                         # only run optimiser for max speed
                         st1 = time.time()
-                        b_d = self.sess.run([self.data_queue_size_op])#, self.batch_queue_size_op])
+                        b_d = self.sess.run(self.data_queue_size_op)#, self.batch_queue_size_op])
                         end1 = time.time() - st1
 
                         st2 = time.time()
@@ -546,7 +546,7 @@ class GUANt(object):
                         end2 = time.time() - st2
 
                         st3 = time.time()
-                        a_d = self.sess.run([self.data_queue_size_op])#, self.batch_queue_size_op])
+                        a_d = self.sess.run(self.data_queue_size_op)#, self.batch_queue_size_op])
                         end3 = end1 + time.time() - st3
                         
                         logging.info('b_d = %d, a_d = %d, node_t = %.5f, size_t = %.5f' % (b_d, a_d, end2, end3))

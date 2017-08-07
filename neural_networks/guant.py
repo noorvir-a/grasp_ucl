@@ -525,16 +525,19 @@ class GUANt(object):
                     # ---------------------------------
                     if batch % self.log_frequency != 0:
                         # only run optimiser for max speed
-                        d, b = self.sess.run([self.data_queue_size_op, self.batch_queue_size_op])
-                        logging.info('queue sizes before run = %d, %d' % (d, b))
-
                         st1 = time.time()
+                        b_d, b_b = self.sess.run([self.data_queue_size_op, self.batch_queue_size_op])
+                        end1 = time.time() - st1
+
+                        st2 = time.time()
                         self.sess.run([self.train_input_node, self.train_label_node])
                         # _, d, b = self.sess.run([optimiser])
-                        logging.info('time= %.5f' % (time.time() - st1))
 
-                        d, b = self.sess.run([self.data_queue_size_op, self.batch_queue_size_op])
-                        logging.info('queue sizes after run = %d, %d' % (d, b))
+                        st3 = time.time()
+                        a_d, a_b = self.sess.run([self.data_queue_size_op, self.batch_queue_size_op])
+                        end3 = end1 + time.time() - st3
+                        
+                        logging.info('b_d = %d, b_b = %d, a_d = %d, a_b =  %d, node_t = %.5f, size_t = %.5f' % (b_d, b_b, a_d, a_b, time.time() - st2, end3))
 
                     else:
                         d, b = self.sess.run([self.data_queue_size_op, self.batch_queue_size_op])

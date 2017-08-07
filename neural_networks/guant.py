@@ -504,12 +504,13 @@ class GUANt(object):
 
         self._graph.finalize()
 
-        # create and start threads
-        self.train_data_enqueue_threads = qr_train_data.create_threads(self.sess, coord=coord, start=True)
-        # self.train_batch_enqueue_threads = qr_train_batch.create_threads(self.sess, coord=coord, start=True)
-
-        self.val_data_enqueue_threads = qr_val_data.create_threads(self.sess, coord=coord, start=True)
-        self.val_batch_enqueue_threads = qr_val_batch.create_threads(self.sess, coord=coord, start=True)
+        threads = tf.train.start_queue_runners(sess=self.sess, coord=coord)
+        # # create and start threads
+        # self.train_data_enqueue_threads = qr_train_data.create_threads(self.sess, coord=coord, start=True)
+        # # self.train_batch_enqueue_threads = qr_train_batch.create_threads(self.sess, coord=coord, start=True)
+        #
+        # self.val_data_enqueue_threads = qr_val_data.create_threads(self.sess, coord=coord, start=True)
+        # self.val_batch_enqueue_threads = qr_val_batch.create_threads(self.sess, coord=coord, start=True)
 
 
         logging.info('Waiting 60 seconds to load queues')
@@ -603,10 +604,11 @@ class GUANt(object):
                     step += self.batch_size
 
             coord.request_stop()
-            coord.join(self.train_data_enqueue_threads)
-            # coord.join(self.train_batch_enqueue_threads)
-            coord.join(self.val_data_enqueue_threads)
-            coord.join(self.val_batch_enqueue_threads)
+            coord.join(threads)
+            # coord.join(self.train_data_enqueue_threads)
+            # # coord.join(self.train_batch_enqueue_threads)
+            # coord.join(self.val_data_enqueue_threads)
+            # coord.join(self.val_batch_enqueue_threads)
 
         # except Exception as err:
         #     logging.error(str(err))

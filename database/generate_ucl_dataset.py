@@ -69,7 +69,7 @@ class UCLDatabaseGQCNN(object):
         self.labels = config['labels']
         self.bin_step = config['bin_step']
         self.label_threshold = config['label_threshold']
-        self.num_points_per_file = self.config['num_points_per_file']
+        self.num_points_per_file = config['num_points_per_file']
 
 
     def get_metric_stats(self):
@@ -123,6 +123,14 @@ class UCLDatabaseGQCNN(object):
 
         # important not to use img_data for this
         num_data = np.shape(label_data)[0]
+        
+        print('Loading poses ...')
+        for i, filename in enumerate(pose_filenames):
+            file_data = np.load(os.path.join(self.dataset_dir, filename))['arr_0']
+            pose_data = np.concatenate((pose_data, file_data), axis=0)
+
+            if i % 100 == 0:
+                print('Loading data from file number %d out of %d' % (i + 1, len(pose_filenames)))
 
         print('Loading images ...')
         img_data = np.zeros([num_data, 32, 32, 1])
@@ -141,14 +149,6 @@ class UCLDatabaseGQCNN(object):
 
             if i % 100 == 0:
                 print('Loading data from file number %d out of %d' % (i + 1, len(img_filenames)))
-
-        print('Loading poses ...')
-        for i, filename in enumerate(pose_filenames):
-            file_data = np.load(os.path.join(self.dataset_dir, filename))['arr_0']
-            pose_data = np.concatenate((pose_data, file_data), axis=0)
-
-            if i % 100 == 0:
-                print('Loading data from file number %d out of %d' % (i + 1, len(pose_filenames)))
 
         idx = range(num_data)
         np.random.shuffle(idx)

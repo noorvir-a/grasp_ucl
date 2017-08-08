@@ -69,6 +69,7 @@ class UCLDatabaseGQCNN(object):
         self.labels = config['labels']
         self.bin_step = config['bin_step']
         self.label_threshold = config['label_threshold']
+        self.num_points_per_file = self.config['num_points_per_file']
 
 
     def get_metric_stats(self):
@@ -102,10 +103,6 @@ class UCLDatabaseGQCNN(object):
     def shuffle_pre_existing_data(self):
         """ Shuffles data in numpy files and saves them to new files"""
 
-        img_data = np.empty([0, 32, 32, 1])
-        label_data = np.empty([0])
-        pose_data = np.empty([0, 4])
-
         # depth image filenames
         img_filenames = self.load_filenames(self.dataset_dir, 'depth_ims_tf_table', sort=True)
         # robust ferrai_canny label filenames
@@ -113,13 +110,8 @@ class UCLDatabaseGQCNN(object):
         # pose filenames
         pose_filenames = self.load_filenames(self.dataset_dir, 'hand_poses', sort=True)
 
-        print('Loading images ...')
-        for i, filename in enumerate(img_filenames):
-            file_data = np.load(os.path.join(self.dataset_dir, filename))['arr_0']
-            img_data = np.concatenate((img_data, file_data), axis=0)
-
-            if i % 100 == 0:
-                print('Loading data from file number %d out of %d' % (i + 1, len(img_filenames)))
+        label_data = np.empty([0])
+        pose_data = np.empty([0, 4])
 
         print('Loading labels ...')
         for i, filename in enumerate(label_filenames):
@@ -129,6 +121,27 @@ class UCLDatabaseGQCNN(object):
             if i % 100 == 0:
                 print('Loading data from file number %d out of %d' % (i + 1, len(label_filenames)))
 
+        # important not to use img_data for this
+        num_data = np.shape(label_data)[0]
+
+        print('Loading images ...')
+        img_data = np.zeros([num_data, 32, 32, 1])
+        start_index = 0
+        end_index = self.num_points_per_file
+        for i, filename in enumerate(img_filenames):
+            file_data = np.load(os.path.join(self.dataset_dir, filename))['arr_0']
+
+            if end_index <= (num_data - 1):
+                img_data[start_index:end_index, :, :, :] = file_data
+            else:
+                img_data[start_index:num_data, :, :, :] = file_data
+
+            start_index = end_index
+            end_index = end_index + self.num_points_per_file
+
+            if i % 100 == 0:
+                print('Loading data from file number %d out of %d' % (i + 1, len(img_filenames)))
+
         print('Loading poses ...')
         for i, filename in enumerate(pose_filenames):
             file_data = np.load(os.path.join(self.dataset_dir, filename))['arr_0']
@@ -137,20 +150,18 @@ class UCLDatabaseGQCNN(object):
             if i % 100 == 0:
                 print('Loading data from file number %d out of %d' % (i + 1, len(pose_filenames)))
 
-        num_data = np.shape(img_data)[0]
-
         idx = range(num_data)
         np.random.shuffle(idx)
 
         # save to files
         start_index = 0
-        end_index = self.config['num_points_per_file']
+        end_index = self.num_points_per_file
         for i, img_filename in enumerate(img_filenames):
 
             if end_index <= (num_data - 1):
                 curr_idx = idx[start_index:end_index]
                 start_index = end_index
-                end_index = end_index + self.config['num_points_per_file']
+                end_index = end_index + self.num_points_per_file
 
             else:
                 curr_idx = idx[start_index:]

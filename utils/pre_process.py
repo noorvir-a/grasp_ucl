@@ -58,104 +58,45 @@ class DataLoader(object):
         self.data_used_fraction = self._network.config['data_used_fraction']
         self.images_per_file = self.config['images_per_file']
 
+
     def _setup_filenames(self):
         """ Load file names from data-set and randomly select a pre-set fraction to train on """
 
-        # filename for index map
-        # train_map_name = 'train_indices_map_' + self._network.dataset_name + '_{:.5f}'.format(self.data_used_fraction).replace('.', '_') + '.pkl'
-        # val_map_name = 'val_indices_map_' + self._network.dataset_name + '_{:.5f}'.format(self.data_used_fraction).replace('.', '_') + '.pkl'
-        # train_map_path = os.path.join(self._network.cache_dir, train_map_name)
-        # self.val_map_path = os.path.join(self._network.cache_dir, val_map_name)
+        # read all data filenames
+        all_filenames = os.listdir(self._network.dataset_dir)
 
-        # make a map of the train and test indices for each file or load precomputed map
-        # if os.path.exists(train_map_path):
-        if False:
+        # get image files
+        self.img_filenames = [f for f in all_filenames if f.find(self.filename_templates['depth_imgs']) > -1]
+        self.label_filenames = [f for f in all_filenames if f.find(self.filename_templates['labels']) > -1]
 
-            pass
-            # train_data = pkl.load(open(train_map_path, 'r'))
-            # val_data = pkl.load(open(self.val_map_path, 'r'))
-            #
-            # self.img_filenames = train_data['img_filenames']
-            # self.label_filenames = train_data['label_filenames']
-            # self.num_train = train_data['num_train']
-            #
-            # # filename for index map
-            # self.train_index_map = train_data['train_index_map']
-            # self.val_index_map = val_data
+        self.img_filenames.sort(key=lambda x: int(x[-9:-4]))
+        self.label_filenames.sort(key=lambda x: int(x[-9:-4]))
 
-        else:
-            # read all data filenames
-            all_filenames = os.listdir(self._network.dataset_dir)
+        # randomly choose files for training and validation
+        num_files = len(self.img_filenames)
+        num_files_used = int(self.data_used_fraction * num_files)
 
-            # get image files
-            self.img_filenames = [f for f in all_filenames if f.find(self.filename_templates['depth_imgs']) > -1]
-            self.label_filenames = [f for f in all_filenames if f.find(self.filename_templates['labels']) > -1]
+        num_train_files = int(num_files_used * self.train_fraction)
+        num_val_files = int(num_files_used * self.val_fraction)
+        num_test_files = int(num_files_used * self.test_fraction)
 
-            self.img_filenames.sort(key=lambda x: int(x[-9:-4]))
-            self.label_filenames.sort(key=lambda x: int(x[-9:-4]))
+        # get total number of training datapoints
+        num_datapoints = self.images_per_file * num_files_used
+        self.num_train = int(self.train_fraction * num_datapoints)
 
-            # randomly choose files for training and validation
-            num_files = len(self.img_filenames)
-            num_files_used = int(self.data_used_fraction * num_files)
-            # filename_indices = np.random.choice(num_files, size=num_files_used, replace=False)
-            # filename_indices.sort()
+        train_id_end = num_train_files
+        val_id_end = train_id_end + num_val_files
+        test_id_end = val_id_end + num_test_files
 
-            # self.img_filenames = [self.img_filenames[k] for k in filename_indices]
-            # self.label_filenames = [self.label_filenames[k] for k in filename_indices]
+        # image filenames
+        self.train_img_filenames = self.img_filenames[: train_id_end]
+        self.val_img_filenames = self.img_filenames[train_id_end: val_id_end]
+        self.train_img_filenames = self.img_filenames[val_id_end: test_id_end]
 
-            num_train_files = int(num_files_used * self.train_fraction)
-            num_val_files = int(num_files_used * self.val_fraction)
-            num_test_files = int(num_files_used * self.test_fraction)
-
-            # get total number of training datapoints
-            num_datapoints = self.images_per_file * num_files_used
-            self.num_train = int(self.train_fraction * num_datapoints)
-
-            train_id_end = num_train_files
-            val_id_end = train_id_end + num_val_files
-            test_id_end = val_id_end + num_test_files
-
-            # image filenames
-            self.train_img_filenames = self.img_filenames[: train_id_end]
-            self.val_img_filenames = self.img_filenames[train_id_end: val_id_end]
-            self.train_img_filenames = self.img_filenames[val_id_end: test_id_end]
-
-            # label filenames
-            self.train_label_filenames = self.label_filenames[: train_id_end]
-            self.val_label_filenames = self.label_filenames[train_id_end: val_id_end]
-            self.train_label_filenames = self.label_filenames[val_id_end: test_id_end]
-
-            # # get training and validation indices
-            # all_indices = np.arange(num_datapoints)
-            # np.random.shuffle(all_indices)
-            # train_indices = np.sort(all_indices[:self.num_train])
-            # val_indices = np.sort(all_indices[self.num_train:])
-
-            # train_data = {}
-            # self.train_index_map = {}
-            # self.val_index_map = {}
-
-            # logging.info(self._network.get_date_time() + ' : Computing filename-to-training data indices.')
-
-            # for i, img_filename in enumerate(self.img_filenames):
-            #     lower = i * self.images_per_file
-            #     upper = (i + 1) * self.images_per_file
-            #     im_arr = np.load(os.path.join(self._network.dataset_dir, img_filename))['arr_0']
-            #     self.train_index_map[img_filename] = train_indices[(train_indices >= lower) & (train_indices < upper) &
-            #                                                        (train_indices - lower < im_arr.shape[0])] - lower
-            #     self.val_index_map[img_filename] = val_indices[(val_indices >= lower) & (val_indices < upper) & (
-            #                                                         val_indices - lower < im_arr.shape[0])] - lower
-            #
-            # train_data['img_filenames'] = self.img_filenames
-            # train_data['label_filenames'] = self.label_filenames
-            # train_data['num_train'] = self.num_train
-            # train_data['train_index_map'] = self.train_index_map
-            #
-            # val_data = self.val_index_map
-            #
-            # logging.info(self._network.get_date_time() + ' : Writing filename-to-training map to file.')
-            # pkl.dump(train_data, open(train_map_path, 'w'))
-            # pkl.dump(val_data, open(self.val_map_path, 'w'))
+        # label filenames
+        self.train_label_filenames = self.label_filenames[: train_id_end]
+        self.val_label_filenames = self.label_filenames[train_id_end: val_id_end]
+        self.train_label_filenames = self.label_filenames[val_id_end: test_id_end]
 
 
     def get_train_data(self):
@@ -182,15 +123,11 @@ class DataLoader(object):
             # get indices of negative data-points
             num_neg = tf.minimum(num_neg, tf.shape(neg_data_idx)[0])
             num_neg = tf.maximum(num_neg, 1)                        # TODO: really ugly hack for when num_neg =0 . change this
-            # neg_data_idx = tf.random_uniform([num_neg], 0, tf.shape(neg_data_idx)[0],  dtype=tf.int32)
             neg_data_idx = tf.range(0, num_neg, delta=1)
 
             # get negative indices
             neg_img_data = tf.gather(neg_img_data, neg_data_idx)
             neg_label_data = tf.gather(neg_label_data, neg_data_idx)
-
-            # self._network.Printer1 = tf.Print([label_data], [img_data, label_data, num_neg])
-            # self._network.Printer2 = tf.Print([neg_data_idx], [label_data, num_neg])
 
             imgs = tf.concat([pos_img_data, neg_img_data], axis=0)
             labels = tf.concat([pos_label_data, neg_label_data], axis=0)
@@ -259,21 +196,6 @@ class DataLoader(object):
         imgs = np.load(os.path.join(self._network.dataset_dir, img_filename))['arr_0']
         labels = np.load(os.path.join(self._network.dataset_dir, label_filename))['arr_0']
 
-        # get data-point indices assigned for training and validation
-        # train_idx = self.train_index_map[img_filename]
-        # np.random.shuffle(train_idx)
-
-        # only use a fraction of data from each file to ensure mixing
-        # num_train = np.shape(train_idx)[0]
-        # num_data_from_file = int(self._network.frac_datapoints_from_file * num_train)
-        # train_idx = train_idx[:num_data_from_file]
-
-        # get training data-points
-        # train_imgs = imgs[train_idx]
-        # train_labels = labels[train_idx]
-
-        # copy 1st channel into 2nd and 3rd
-        # train_imgs = np.repeat(train_imgs, self._network.img_channels, axis=self._network.img_channels)
         imgs = np.repeat(imgs, self._network.img_channels, axis=self._network.img_channels)
 
         return [imgs.astype(np.float32), labels.astype(np.float32)]
@@ -290,19 +212,6 @@ class DataLoader(object):
         # load data files
         imgs = np.load(os.path.join(self._network.dataset_dir, img_filename))['arr_0']
         labels = np.load(os.path.join(self._network.dataset_dir, label_filename))['arr_0']
-
-        # get data-point indices assigned for training and validation
-        # val_idx = self.val_index_map[img_filename]
-        # np.random.shuffle(val_idx)
-        #
-        # # only use a fraction of data from each file to ensure mixing
-        # num_val = np.shape(val_idx)[0]
-        # num_data_from_file = int(self._network.frac_datapoints_from_file * num_val)
-        # val_idx = val_idx[:num_data_from_file]
-        #
-        # # get validation data-points
-        # val_imgs = imgs[val_idx]
-        # val_labels = labels[val_idx]
 
         # copy 1st channel into 2nd and 3rd
         imgs = np.repeat(imgs, self._network.img_channels, axis=self._network.img_channels)

@@ -509,7 +509,6 @@ class GUANt(object):
 
         # total training steps
         step = 0
-
         # print trainable variables
         logging.info('Variables to be trained: %s' % str([var.name.split(':')[0] for var in tf.trainable_variables()]))
 

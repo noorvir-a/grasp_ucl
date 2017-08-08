@@ -61,6 +61,7 @@ class UCLDatabaseGQCNN(object):
         self.metric_list = []
         self.database_dir = config['database_dir']
         self.dataset_dir = config['dataset_dir']
+        self.shuffled_dataset_output_dir = config['shuffled_dataset_output_dir']
         self.dataset_output_dir = config['dataset_output_dir']
         self.dataset_cache_dir = config['dataset_cache_dir']
         self.grasp_metric = config['grasp_metric']
@@ -101,7 +102,6 @@ class UCLDatabaseGQCNN(object):
     def shuffle_pre_existing_data(self):
         """ Shuffles data in numpy files and saves them to new files"""
 
-        new_dataset_dir_path = '/home/noorvir/datasets/gqcnn/dexnet_mini_shuffled/'
         img_data = np.empty([0, 32, 32, 1])
         label_data = np.empty([0])
         pose_data = np.empty([0, 4])
@@ -166,13 +166,13 @@ class UCLDatabaseGQCNN(object):
 
             if i % 10 == 0:
                 print('Saving file %d of %d' % (i+1, np.shape(img_filenames)[0]))
-            np.savez_compressed(os.path.join(new_dataset_dir_path, img_filename), imgs)
-            np.savez_compressed(os.path.join(new_dataset_dir_path, label_filename), labels)
-            np.savez_compressed(os.path.join(new_dataset_dir_path, pose_filename), poses)
+            np.savez_compressed(os.path.join(self.shuffled_dataset_output_dir, img_filename), imgs)
+            np.savez_compressed(os.path.join(self.shuffled_dataset_output_dir, label_filename), labels)
+            np.savez_compressed(os.path.join(self.shuffled_dataset_output_dir, pose_filename), poses)
 
         # save shuffling key
-        np.savez_compressed(os.path.join(new_dataset_dir_path, 'shuffle_key'), idx)
-
+        np.savez_compressed(os.path.join(self.shuffled_dataset_output_dir, 'shuffle_key'), idx)
+        print('done!')
 
 
     def create_images(self, input_filename_template, output_filename_template):

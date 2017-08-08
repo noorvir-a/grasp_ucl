@@ -1,6 +1,8 @@
 # directories and filenames
 database_dir: /home/noorvir/datasets/gqcnn/
 dataset_dir: /home/noorvir/datasets/gqcnn/dexnet_mini
+
+shuffled_dataset_output_dir: /home/noorvir/datasets/gqcnn/dexnet_mini
 dataset_output_dir: /home/noorvir/datasets/gqcnn/dexnet_mini_ucl
 dataset_cache_dir: /home/noorvir/catkin_ws/src/gqcnn/.gqcnn/cache/
 metric_stats_filename: metric_stats.pkl

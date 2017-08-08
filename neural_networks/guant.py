@@ -292,16 +292,20 @@ class GUANt(object):
         # ---------------------------------
         # queue to load data from file into training buffer
         with tf.name_scope('train_data_queue'):
-            self.train_data_queue = tf.RandomShuffleQueue(self.train_data_queue_capacity, 0, dtypes=[tf.float32, tf.float32],
-                                                          shapes=[[self.img_width, self.img_height, self.img_channels],
-                                                          [self.num_classes]], name='train_data_queue')
+            self.train_data_queue = tf.FIFOQueue(self.train_data_queue_capacity, dtypes=[tf.float32, tf.float32],
+                                                 shapes=[[self.img_width, self.img_height, self.img_channels],
+                                                         [self.num_classes]], name='train_data_queue')
 
             self.train_data_enqueue_op = self.train_data_queue.enqueue_many([train_imgs, train_labels], name='enqueue_op')
             self.data_queue_size_op = self.train_data_queue.size()
 
         # queue data into batches from from buffer
         with tf.name_scope('train_batch_queue'):
-            train_batch_imgs, train_batch_labels = self.loader.get_train_data()
+            if self.debug:
+                train_batch_imgs, train_batch_labels = tf.py_func(self.loader.debug_load_and_enqueue, inp=[], Tout=[tf.float32, tf.float32])
+            else:
+                train_batch_imgs, train_batch_labels = self.loader.get_train_data()
+
             self.train_input_node, self.train_label_node = tf.train.batch([train_batch_imgs, train_batch_labels],
                                                                           self.batch_size,
                                                                           num_threads=self.num_train_batch_enqueue_threads,
@@ -316,9 +320,9 @@ class GUANt(object):
         # queue to load data from file into validation buffer
         with tf.name_scope('val_data_queue'):
             # validation data queue
-            self.val_data_queue = tf.RandomShuffleQueue(self.val_data_queue_capacity, 0, dtypes=[tf.float32, tf.float32],
-                                                        shapes=[[self.img_width, self.img_height, self.img_channels],
-                                                        [self.num_classes]], name='val_data_queue')
+            self.val_data_queue = tf.FIFOQueue(self.val_data_queue_capacity, dtypes=[tf.float32, tf.float32],
+                                               shapes=[[self.img_width, self.img_height, self.img_channels],
+                                                       [self.num_classes]], name='val_data_queue')
 
             self.val_data_enqueue_op = self.val_data_queue.enqueue_many([val_imgs, val_labels], name='enqueue_op')
 
@@ -482,14 +486,15 @@ class GUANt(object):
         # use multiple threads to load data
         coord = tf.train.Coordinator()
 
-        # training-data threads
-        qr_train_data = tf.train.QueueRunner(self.train_data_queue, [self.train_data_enqueue_op] * self.num_train_data_enqueue_threads)
-        # validation-data threads
-        qr_val_data = tf.train.QueueRunner(self.val_data_queue, [self.val_data_enqueue_op] * self.num_val_data_enqueue_threads)
+        if not self.debug:
+            # training-data threads
+            qr_train_data = tf.train.QueueRunner(self.train_data_queue, [self.train_data_enqueue_op] * self.num_train_data_enqueue_threads)
+            # validation-data threads
+            qr_val_data = tf.train.QueueRunner(self.val_data_queue, [self.val_data_enqueue_op] * self.num_val_data_enqueue_threads)
 
-        # add QueueRunners to default collection
-        tf.train.add_queue_runner(qr_train_data)
-        tf.train.add_queue_runner(qr_val_data)
+            # add QueueRunners to default collection
+            tf.train.add_queue_runner(qr_train_data)
+            tf.train.add_queue_runner(qr_val_data)
 
         self._graph.finalize()
 
@@ -519,7 +524,7 @@ class GUANt(object):
                     # ---------------------------------
                     if batch % self.log_frequency != 0:
                         # only run optimiser for max speed
-                        self.sess.run([self.train_input_node, self.train_label_node])
+                        self.sess.run(optimiser)
 
                     else:
                         run_vars = [optimiser, self.loss, self.accuracy_op, self.merged_train_summaries, self.data_queue_size_op]

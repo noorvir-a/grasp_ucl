@@ -10,7 +10,7 @@ Ken Goldberg. "Dex-Net 2.0: Deep Learning to Plan Robust Grasps with Synthetic P
 Grasp Metrics." Robotics, Science, and Systems, 2017. Cambridge, MA.
 
 """
-
+from grasp_ucl.database.transformations import ImageTransform
 import tensorflow as tf
 import numpy as np
 import pickle as pkl
@@ -376,7 +376,6 @@ class DataLoader(object):
 
             label_batch = self.debug_labels[batch_idx]
 
-            self._network.sess.run(self._network.enqueue_op, feed_dict={self._network.img_queue_batch: img_batch,
-                                                                        self._network.label_queue_batch: label_batch})
+            return img_batch, label_batch
 
 

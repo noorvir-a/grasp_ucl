@@ -292,12 +292,13 @@ class GUANt(object):
         # ---------------------------------
         # queue to load data from file into training buffer
         with tf.name_scope('train_data_queue'):
-            self.train_data_queue = tf.FIFOQueue(self.train_data_queue_capacity, dtypes=[tf.float32, tf.float32],
-                                                 shapes=[[self.img_width, self.img_height, self.img_channels],
-                                                         [self.num_classes]], name='train_data_queue')
+            if not self.debug:
+                self.train_data_queue = tf.FIFOQueue(self.train_data_queue_capacity, dtypes=[tf.float32, tf.float32],
+                                                     shapes=[[self.img_width, self.img_height, self.img_channels],
+                                                             [self.num_classes]], name='train_data_queue')
 
-            self.train_data_enqueue_op = self.train_data_queue.enqueue_many([train_imgs, train_labels], name='enqueue_op')
-            self.data_queue_size_op = self.train_data_queue.size()
+                self.train_data_enqueue_op = self.train_data_queue.enqueue_many([train_imgs, train_labels], name='enqueue_op')
+                self.data_queue_size_op = self.train_data_queue.size()
 
         # queue data into batches from from buffer
         with tf.name_scope('train_batch_queue'):
@@ -328,7 +329,7 @@ class GUANt(object):
 
         # queue data into batches from from buffer
         with tf.name_scope('val_batch_queue'):
-            val_batch_imgs, val_batch_labels = self.loader.get_train_data()
+            val_batch_imgs, val_batch_labels = self.loader.get_val_data()
             self.val_input_node, self.val_label_node = tf.train.batch([val_batch_imgs, val_batch_labels],
                                                                       self.batch_size,
                                                                       num_threads=self.num_val_batch_enqueue_threads,
@@ -489,12 +490,12 @@ class GUANt(object):
         if not self.debug:
             # training-data threads
             qr_train_data = tf.train.QueueRunner(self.train_data_queue, [self.train_data_enqueue_op] * self.num_train_data_enqueue_threads)
-            # validation-data threads
-            qr_val_data = tf.train.QueueRunner(self.val_data_queue, [self.val_data_enqueue_op] * self.num_val_data_enqueue_threads)
-
             # add QueueRunners to default collection
             tf.train.add_queue_runner(qr_train_data)
-            tf.train.add_queue_runner(qr_val_data)
+
+        # validation-data threads
+        qr_val_data = tf.train.QueueRunner(self.val_data_queue, [self.val_data_enqueue_op] * self.num_val_data_enqueue_threads)
+        tf.train.add_queue_runner(qr_val_data)
 
         self._graph.finalize()
 
@@ -527,12 +528,12 @@ class GUANt(object):
                         self.sess.run(optimiser)
 
                     else:
-                        run_vars = [optimiser, self.loss, self.accuracy_op, self.merged_train_summaries, self.data_queue_size_op]
+                        run_vars = [optimiser, self.loss, self.accuracy_op, self.merged_train_summaries]
 
-                        _, loss, self.train_accuracy, training_summaries, queue_size = self.sess.run(run_vars)
+                        _, loss, self.train_accuracy, training_summaries = self.sess.run(run_vars)
 
-                        logging.info(self.get_date_time() + ': epoch = %d, batch = %d, accuracy = %.3f, loss = %.3f, time = %.5f, queue_size = %d'
-                                     % (epoch, batch, self.train_accuracy, loss, time.time() - st, queue_size))
+                        logging.info(self.get_date_time() + ': epoch = %d, batch = %d, accuracy = %.3f, loss = %.3f, time = %.5f'
+                                     % (epoch, batch, self.train_accuracy, loss, time.time() - st))
 
                         # log summaries
                         self.summariser.add_summary(training_summaries, step)

@@ -14,6 +14,86 @@ import os
 logging.getLogger().setLevel(logging.INFO)
 
 
+class NeuralNetLayers(object):
+    """ Class containing utilities to create layers of neural-nets"""
+
+    def __init__(self):
+        pass
+
+
+    @staticmethod
+    def convolution(x, filter_dim, num_filters, pool_stride, initialiser, name, padding='SAME'):
+        """Create a convolution layer.
+
+        Adapted from: https://github.com/ethereon/caffe-tensorflow
+        """
+        # Get number of input channels
+        input_channels = int(x.get_shape()[-1])
+
+        # Create lambda function for the convolution
+        convolve = lambda i, k: tf.nn.conv2d(i, k, strides=[1, pool_stride, pool_stride, 1], padding=padding)
+
+        with tf.variable_scope(name) as scope:
+            # Create tf variables for the weights and biases of the conv layer
+            weights = tf.get_variable(name + 'W', shape=[filter_dim, filter_dim, input_channels, num_filters],
+                                      initializer=initialiser)
+            biases = tf.get_variable(name + 'b', shape=[num_filters], initializer=initialiser)
+
+        conv = convolve(x, weights)
+
+        # Add biases
+        bias = tf.reshape(tf.nn.bias_add(conv, biases), conv.get_shape().as_list())
+
+        # Apply relu function
+        relu = tf.nn.relu(bias, name=scope.name)
+
+        return relu
+
+
+    @staticmethod
+    def fully_connected(x, num_in, num_out, initialiser, name, bias=True, relu=True):
+        """Create a fully connected layer."""
+        with tf.variable_scope(name) as scope:
+
+            # Create tf variables for the weights and biases
+            weights = tf.get_variable(name + 'W', shape=[num_in, num_out], initializer=initialiser)
+            act = tf.matmul(x, weights)
+
+            # add bias
+            with tf.name_scope(scope.name):
+                if bias:
+                    biases = tf.get_variable(name + 'b', [num_out], initializer=initialiser)
+                    act = act + biases
+                else:
+                    act = weights
+
+        if relu:
+            # Apply ReLu non linearity
+            relu = tf.nn.relu(act)
+            return relu
+        else:
+            return act
+
+
+    @staticmethod
+    def max_pool(x, filter_dim, pool_stride, name, padding='SAME'):
+        """Create a max pooling layer."""
+        return tf.nn.max_pool(x, ksize=[1, filter_dim, filter_dim, 1], strides=[1, pool_stride, pool_stride, 1], padding=padding,
+                              name=name)
+
+
+    @staticmethod
+    def lrn(x, radius, alpha, beta, bias, name='lrn'):
+        """Create a local response normalization layer."""
+        return tf.nn.local_response_normalization(x, depth_radius=radius, alpha=alpha, beta=beta, bias=bias, name=name)
+
+
+    @staticmethod
+    def dropout(x, keep_prob):
+        """Create a dropout layer."""
+        return tf.nn.dropout(x, keep_prob)
+
+
 class NeuralNets(object):
     """ Class to provide shared functionality to create neural nets"""
 
@@ -51,6 +131,7 @@ class NeuralNets(object):
         self.data_metrics_filename = self.config['data_metics_filename']
         self.img_max_val = self.config['img_max_val']
         self.img_min_val = self.config['img_min_val']
+        self.pose_size = self.config['pose_size']
         self.datapoints_per_file = self.config['datapoints_per_file']
         self.frac_datapoints_from_file = self.config['frac_datapoints_from_file']
 

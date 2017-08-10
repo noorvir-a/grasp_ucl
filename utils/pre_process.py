@@ -76,6 +76,9 @@ class DataLoader(object):
         num_files = len(self.img_filenames)
         num_files_used = int(self.data_used_fraction * num_files)
 
+        if num_files_used == 0:
+            raise ValueError('Number of files used must be more than Zero.')
+
         num_train_files = int(num_files_used * self.train_fraction)
         num_val_files = int(num_files_used * self.val_fraction)
         num_test_files = int(num_files_used * self.test_fraction)
@@ -106,8 +109,16 @@ class DataLoader(object):
             img_data, label_data = self._network.train_data_queue.dequeue_many(n=self._network.num_train_data_dequeue, name='dequeue_op')
 
         with tf.name_scope('train_batch_loader'):
-            pos_data_idx = tf.where(label_data[:, 1] > 0)[:, 0]
-            neg_data_idx = tf.where(label_data[:, 0] > 0)[:, 0]
+            if self._network.num_classes == 2:
+                pos_data_idx = tf.where(tf.equal(label_data[:, 1], 1))[:, 0]
+                neg_data_idx = tf.where(tf.equal(label_data[:, 0], 1))[:, 0]
+                # get number of negative indices to ensure desired pos-neg split
+                num_neg_multipler = (1.0 - self._network.pos_train_frac) / self._network.pos_train_frac
+            else:
+                pos_data_idx = tf.where(tf.not_equal(label_data[:, 0], 1))[:, 0]
+                neg_data_idx = tf.where(tf.equal(label_data[:, 0], 1))[:, 0]
+                # ensure equal number of datapoints from each class
+                num_neg_multipler = 1/float(self._network.num_classes)
 
             # get positive data-points
             pos_img_data = tf.gather(img_data, pos_data_idx)
@@ -116,14 +127,12 @@ class DataLoader(object):
             neg_img_data = tf.gather(img_data, neg_data_idx)
             neg_label_data = tf.gather(label_data, neg_data_idx)
 
-            # get number of negative indices to ensure desired pos-neg split
-            num_neg_multipler = (1.0 - self._network.pos_train_frac)/self._network.pos_train_frac
             num_neg = tf.cast(num_neg_multipler * tf.cast(tf.shape(pos_img_data)[0], dtype=tf.float32), dtype=tf.int32)
 
             # get indices of negative data-points
             num_neg = tf.minimum(num_neg, tf.shape(neg_data_idx)[0])
             num_neg = tf.maximum(num_neg, 1)                        # TODO: really ugly hack for when num_neg =0 . change this
-            neg_data_idx = tf.range(0, num_neg, delta=1)
+            neg_data_idx = tf.random_uniform([num_neg], 0, tf.shape(neg_data_idx)[0], dtype=tf.int32)
 
             # get negative indices
             neg_img_data = tf.gather(neg_img_data, neg_data_idx)
@@ -143,13 +152,21 @@ class DataLoader(object):
 
 
     def get_val_data(self):
-        """ """
+        """ Dequeue data from validation buffer"""
         with tf.name_scope('val_data_queue'):
             img_data, label_data = self._network.val_data_queue.dequeue_many(n=self._network.num_val_data_dequeue, name='dequeue_op')
 
         with tf.name_scope('val_batch_loader'):
-            pos_data_idx = tf.where(label_data[:, 1] > 0)[:, 0]
-            neg_data_idx = tf.where(label_data[:, 0] > 0)[:, 0]
+            if self._network.num_classes == 2:
+                pos_data_idx = tf.where(tf.equal(label_data[:, 1], 1))[:, 0]
+                neg_data_idx = tf.where(tf.equal(label_data[:, 0], 1))[:, 0]
+                # get number of negative indices to ensure desired pos-neg split
+                num_neg_multipler = (1.0 - self._network.pos_train_frac) / self._network.pos_train_frac
+            else:
+                pos_data_idx = tf.where(tf.not_equal(label_data[:, 0], 1))[:, 0]
+                neg_data_idx = tf.where(tf.equal(label_data[:, 0], 1))[:, 0]
+                # ensure equal number of datapoints from each class
+                num_neg_multipler = 1/float(self._network.num_classes)
 
             # get positive data-points
             pos_img_data = tf.gather(img_data, pos_data_idx)
@@ -158,8 +175,6 @@ class DataLoader(object):
             neg_img_data = tf.gather(img_data, neg_data_idx)
             neg_label_data = tf.gather(label_data, neg_data_idx)
 
-            # get number of negative indices to ensure desired pos-neg split
-            num_neg_multipler = (1.0 - self._network.pos_train_frac)/self._network.pos_train_frac
             num_neg = tf.cast(num_neg_multipler * tf.cast(tf.shape(pos_img_data)[0], dtype=tf.float32), dtype=tf.int32)
 
             # get indices of negative data-points

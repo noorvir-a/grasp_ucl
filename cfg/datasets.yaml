@@ -2,7 +2,7 @@
 guant:
   filename_templates:
     depth_imgs: depth_ims_stf_227_table
-    labels: binary_labels
+    labels: one_hot_labels                 # binary_labels, one_hot_labels
 
   images_per_file: 1000
 

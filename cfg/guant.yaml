@@ -9,6 +9,7 @@ dataset_name: dexnet_large_ucl
 
 dataset_config: /home/noorvir/catkin_ws/src/grasp_ucl/cfg/datasets.yaml
 pt_weights_filename: /home/noorvir/tf_models/AlexNet/bvlc_alexnet.npy
+checkpoint_filename: 17-08-08-22:29:07/model.ckpt
 
 # Data Parameters
 metric_sample_size: 5                   # number of files to use to approximate data metrics (mean, stddev)
@@ -40,8 +41,13 @@ num_epochs: 50
 batch_size: 150
 optimiser: momentum                         # adam, momentum or rmsprop
 loss: xentropy                         # l2, xentropy, wxentropy, or sparse
+learning_rate: 0.0005                  # TODO
+momentum_rate: 0.7
+exponential_decay: 0                  # use learning-rate decay - 0 or 1
+lr_decay_rate: 0.96
+
 pos_train_frac: 0.5                     # fraction of positive training samples (only valid for binary classification)
-#data_euqalisation_frac: 0.4
+weights_init_type: gaussian
 
 val_frequency: 100                     # steps
 log_frequency: 10
@@ -58,8 +64,8 @@ architecture:
   img_width: 227
   img_height: 227
   img_channels: 3
-  num_classes: 2                        # 2 for binary 6 for quality
-  retrain_layers:                       # layers of AlexNet to retrain
+  num_classes: 6                        # 2 for binary 6 for quality
+  load_layers:                       # layers of AlexNet to retrain
     - conv1
     - conv2
     - conv3
@@ -67,8 +73,5 @@ architecture:
     - conv5
     - fc6
     - fc7
-  skip_layers:                       # layers of AlexNet to discard
+  retrain_layers:                       # layers of AlexNet to discard
     - fc8
-  momentum_rate: 0.7
-  learning_rate: 0.0005                  # TODO
-  exponential_decay: 0                  # use learning-rate decay - 0 or 1

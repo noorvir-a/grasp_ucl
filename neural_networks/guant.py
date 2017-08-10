@@ -46,6 +46,7 @@ class GUANt(object):
         self.summary_dir = self.config['summary_dir']
         self.checkpoint_dir = self.config['checkpoint_dir']
         self.pt_weights_file = self.config['pt_weights_filename']
+        self.checkpoint_filename = self.config['checkpoint_filename']
         self.dataset_name = self.config['dataset_name']
 
         # data params
@@ -75,17 +76,20 @@ class GUANt(object):
         self.save_frequency = self.config['save_frequency']
         self.batch_size = self.config['batch_size']
         self.pos_train_frac = self.config['pos_train_frac']
+        self.weights_init_type = self.config['weights_init_type']
+        self.learning_rate = self.config['learning_rate']
+        self.lr_decay_rate = self.config['lr_decay_rate']
+        self.momentum_rate = self.config['momentum_rate']
+        self.exponential_decay = self.config['exponential_decay']
+
 
         # architecture
         self.img_width = self.config['architecture']['img_width']
         self.img_height = self.config['architecture']['img_height']
         self.img_channels = self.config['architecture']['img_channels']
         self.num_classes = self.config['architecture']['num_classes']
-        self.learning_rate = self.config['architecture']['learning_rate']
-        self.momentum_rate = self.config['architecture']['momentum_rate']
-        self.exponential_decay = self.config['architecture']['exponential_decay']
         self.retrain_layers = self.config['architecture']['retrain_layers']
-        self.skip_layers = self.config['architecture']['skip_layers']
+        self.load_layers = self.config['architecture']['load_layers']
 
     def _get_data_metrics(self):
         """ Get metrics on training data """
@@ -156,15 +160,16 @@ class GUANt(object):
             raise ValueError('Loss "%s" not supported' % self.config['loss'])
 
 
-    def _create_optimiser(self):
+    def _create_optimiser(self, batch, var_list):
         """ Create the optimiser specified in the config file"""
 
         if self.config['optimiser'] == 'momentum':
-            return tf.train.MomentumOptimizer(self.learning_rate, self.momentum_rate).minimize(self.loss)
+            return tf.train.MomentumOptimizer(self.learning_rate, self.momentum_rate).minimize(self.loss, global_step=batch,
+                                                                                               var_list=var_list)
         elif self.config['optimiser'] == 'adam':
-            return tf.train.AdamOptimizer(self.learning_rate).minimize(self.loss)
+            return tf.train.AdamOptimizer(self.learning_rate).minimize(self.loss, global_step=batch, var_list=var_list)
         elif self.config['optimiser'] == 'rmsprop':
-            return tf.train.RMSPropOptimizer(self.learning_rate).minimize(self.loss)
+            return tf.train.RMSPropOptimizer(self.learning_rate).minimize(self.loss, global_step=batch, var_list=var_list)
         else:
             raise ValueError('Optimiser %s not supported' % (self.config['optimiser']))
 
@@ -180,47 +185,58 @@ class GUANt(object):
         #var_to_restore = [v for v in all_vars if not v.name.startswith('xxx')]
         #saver = tf.train.Saver(var_to_restore)
 
+        logging.info('Loading weights from pretrained AlexNet')
+
         # Load the weights into memory
         weights_dict = np.load(self.pt_weights_file, encoding='bytes').item()
 
         # Loop over all layer names stored in the weights dict
         for op_name in weights_dict:
-
-            if op_name in self.skip_layers:
+            if op_name not in self.load_layers:
                 continue
 
             with tf.variable_scope(op_name, reuse=True):
 
-                is_trainable = False
-                # Check if weights in this layer should be modified
-                if op_name in self.retrain_layers:
-                    is_trainable = True
-
                 # Assign weights/biases to their corresponding tf variable
                 for data in weights_dict[op_name]:
-
                     # Biases
                     if len(data.shape) == 1:
-                        var = tf.get_variable('biases', trainable=is_trainable)
+                        var = tf.get_variable('biases')
                         self.sess.run(var.assign(data))
 
                     # Weights
                     else:
-                        var = tf.get_variable('weights', trainable=is_trainable)
+                        var = tf.get_variable('weights')
                         self.sess.run(var.assign(data))
+
+        logging.info('Done.')
 
 
     def _load_weights_from_checkpoint(self):
         """ Load weights from checkpoint file."""
-        pass
 
+        logging.info('Loading weights from checkpoint')
+        logging.info('Checkpoint path: checkpoint_path')
 
-    def _init_weights(self):
-        """
-        Initialise weights as specified in the config file.
+        checkpoint_path = os.path.join(self.checkpoint_dir, self.checkpoint_filename)
+        reader = tf.train.NewCheckpointReader(checkpoint_path)
 
-        """
-        pass
+        # var_list = [var for var in tf.trainable_variables() if var.name.split('/')[0] in self.retrain_layers]
+
+        for op_name in self.load_layers:
+            with tf.variable_scope(op_name, reuse=True):
+
+                data = reader.get_tensor(op_name + '/biases')
+                var = tf.get_variable('biases')
+                self.sess.run(var.assign(data))
+
+                data = reader.get_tensor(op_name + '/weights')
+                var = tf.get_variable('weights')
+                self.sess.run(var.assign(data))
+
+        # self.saver.restore(self.sess, checkpoint_path)
+        logging.info('Done.')
+
 
     def _init_summaries(self):
         """ Set-up summaries"""
@@ -229,6 +245,7 @@ class GUANt(object):
         tf.summary.scalar(self.config['loss'] + '_loss', self.loss, collections=['training_summary'])
 
         # gradients
+        # TODO: fix the gradient list hack
         gradient_list = self.retrain_layers + ['fc8']
         var_list = [var for var in tf.trainable_variables() if var.name.split('/')[0] in gradient_list]
         gradients = tf.gradients(self.loss, var_list)
@@ -430,8 +447,31 @@ class GUANt(object):
         # init validation network
         self._get_predition_network()
 
+        # initialise weights
+        if weights_init == 'pre_trained':
+            self._load_pretrained_weights()
+        elif weights_init == 'checkpoint':
+            self._load_weights_from_checkpoint()
+        else:
+            if self.weights_init_type == 'gaussian':
+                pass
+            elif self.weights_init_type == 'truncated_normal':
+                pass
+            elif self.weights_init_type == 'xavier':
+                pass
+
         # metrics
         self._init_metric_ops()
+
+        # TODO: find a bet way of initialising these
+        self.lr_decay_step = 100000
+        batch_num = tf.Variable(0)
+        # setup learning rate decay
+        if self.exponential_decay:
+            self.learning_rate = tf.train.exponential_decay(self.learning_rate, tf.multiply(batch_num, self.batch_size),
+                                                            self.lr_decay_step, self.lr_decay_rate, name='lr_exponential_decay')
+
+        var_list = [var for var in tf.trainable_variables() if var.name.split('/')[0] in self.retrain_layers]
 
         # create loss
         with tf.name_scope('loss'):
@@ -440,22 +480,16 @@ class GUANt(object):
 
         # create optimiser
         with tf.name_scope('optimiser'):
-            optimiser = self._create_optimiser()
+            optimiser = self._create_optimiser(batch_num, var_list)
 
         # setup saver
         self.saver = tf.train.Saver()
-        # setup weight decay (optional)
 
         self._init_summaries()
         self._launch_tensorboard()
 
-        # initialise weights
-        if weights_init == 'pre_trained':
-            self._load_pretrained_weights()
-        elif weights_init == 'checkpoint':
-            self._load_weights_from_checkpoint()
-        elif weights_init == 'gaussian':
-            self._init_weights()
+        # setup weight decay
+
 
         # number of batches per epoch
         batches_per_epoch = int(self.num_training_samples/self.batch_size)
@@ -510,7 +544,7 @@ class GUANt(object):
         # total training steps
         step = 0
         # print trainable variables
-        logging.info('Variables to be trained: %s' % str([var.name.split(':')[0] for var in tf.trainable_variables()]))
+        logging.info('Variables to be trained: %s' % str([var.name for var in var_list]))
 
         st = time.time()
         with tf.device('/gpu:0'):
@@ -643,7 +677,8 @@ if __name__ == '__main__':
     # 1. Train
     ####################
     guant = GUANt(guant_config)
-    guant.optimise(weights_init='pre_trained')
+    # guant.optimise(weights_init='pre_trained')
+    guant.optimise(weights_init='checkpoint')
 
     ####################
     # 2. Test

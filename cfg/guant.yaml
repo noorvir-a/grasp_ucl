@@ -12,7 +12,7 @@ pt_weights_filename: /home/noorvir/tf_models/AlexNet/bvlc_alexnet.npy
 checkpoint_filename: 17-08-08-22:29:07/model.ckpt
 
 # Data Parameters
-metric_sample_size: 5                   # number of files to use to approximate data metrics (mean, stddev)
+metric_sample_size: 50                   # number of files to use to approximate data metrics (mean, stddev)
 data_metics_filename: dexnet_mini_227
 img_min_val: 0
 img_max_val: 255
@@ -41,9 +41,9 @@ num_epochs: 50
 batch_size: 150
 optimiser: momentum                         # adam, momentum or rmsprop
 loss: xentropy                         # l2, xentropy, wxentropy, or sparse
-learning_rate: 0.0005                  # TODO
+learning_rate: 0.0009                  # TODO
 momentum_rate: 0.7
-exponential_decay: 0                  # use learning-rate decay - 0 or 1
+exponential_decay: 1                  # use learning-rate decay - 0 or 1
 lr_decay_rate: 0.96
 
 pos_train_frac: 0.5                     # fraction of positive training samples (only valid for binary classification)
@@ -74,4 +74,11 @@ architecture:
     - fc6
     - fc7
   retrain_layers:                       # layers of AlexNet to discard
+    - conv1
+    - conv2
+    - conv3
+    - conv4
+    - conv5
+    - fc6
+    - fc7
     - fc8

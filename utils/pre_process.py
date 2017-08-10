@@ -76,12 +76,12 @@ class DataLoader(object):
         num_files = len(self.img_filenames)
         num_files_used = int(self.data_used_fraction * num_files)
 
-        if num_files_used == 0:
-            raise ValueError('Number of files used must be more than Zero.')
-
         num_train_files = int(num_files_used * self.train_fraction)
         num_val_files = int(num_files_used * self.val_fraction)
         num_test_files = int(num_files_used * self.test_fraction)
+
+        if num_train_files == 0:
+            raise ValueError('Number of files used must be more than Zero.')
 
         # get total number of training datapoints
         num_datapoints = self.images_per_file * num_files_used
@@ -94,12 +94,12 @@ class DataLoader(object):
         # image filenames
         self.train_img_filenames = self.img_filenames[: train_id_end]
         self.val_img_filenames = self.img_filenames[train_id_end: val_id_end]
-        self.train_img_filenames = self.img_filenames[val_id_end: test_id_end]
+        self.test_img_filenames = self.img_filenames[val_id_end: test_id_end]
 
         # label filenames
         self.train_label_filenames = self.label_filenames[: train_id_end]
         self.val_label_filenames = self.label_filenames[train_id_end: val_id_end]
-        self.train_label_filenames = self.label_filenames[val_id_end: test_id_end]
+        self.test_label_filenames = self.label_filenames[val_id_end: test_id_end]
 
 
     def get_train_data(self):

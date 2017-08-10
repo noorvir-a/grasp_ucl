@@ -544,7 +544,7 @@ class GUANt(object):
         # total training steps
         step = 0
         # print trainable variables
-        logging.info('Variables to be trained: %s' % str([var.name.split(':')[0] for var in tf.trainable_variables()]))
+        logging.info('Variables to be trained: %s' % str([var.name for var in var_list]))
 
         st = time.time()
         with tf.device('/gpu:0'):
@@ -677,7 +677,8 @@ if __name__ == '__main__':
     # 1. Train
     ####################
     guant = GUANt(guant_config)
-    guant.optimise(weights_init='pre_trained')
+    # guant.optimise(weights_init='pre_trained')
+    guant.optimise(weights_init='checkpoint')
 
     ####################
     # 2. Test

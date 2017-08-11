@@ -208,11 +208,12 @@ class GUANt(object):
         # original weights of first convolution layer
         org_conv1_wt = weights_dict['conv1'][0]
         # use only the first channel
-        conv1_wt = np.zeros([11, 11, 1, 96])
+        conv1_wt = np.zeros([11, 11, self.img_channels, 96])
 
         # TODO: change this to a non-linear formula
-        conv1_wt[:, :, 0, :] = org_conv1_wt[:, :, 0, :]
-        # conv1_wt[:, :, 0, :] = org_conv1_wt[:, :, 0, :] + org_conv1_wt[:, :, 0, :] + org_conv1_wt[:, :, 0, :]
+        for channel in range(self.img_channels):
+            conv1_wt[:, :, channel, :] = org_conv1_wt[:, :, channel, :]
+            # conv1_wt[:, :, 0, :] = org_conv1_wt[:, :, 0, :] + org_conv1_wt[:, :, 0, :] + org_conv1_wt[:, :, 0, :]
 
         weights_dict['conv1'][0] = np.copy(conv1_wt)
 

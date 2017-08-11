@@ -63,8 +63,8 @@ test_fraction: 0.15                         # fraction of data to use for traini
 architecture:
   img_width: 227
   img_height: 227
-  img_channels: 3
-  num_classes: 6                        # 2 for binary 6 for quality
+  img_channels: 1
+  num_classes: 2                        # 2 for binary 6 for quality
   load_layers:                       # layers of AlexNet to retrain
     - conv1
     - conv2

@@ -92,7 +92,7 @@ class GUANt(object):
         self.retrain_layers = self.config['architecture']['retrain_layers']
         self.load_layers = self.config['architecture']['load_layers']
 
-    def _signal_handler(self):
+    def _signal_handler(self, sig_num, frame):
         """ Handle CNTRL+C signal and shutdown process"""
 
         logging.info('CNTRL+C signal received')
@@ -532,11 +532,11 @@ class GUANt(object):
         qr_val_data = tf.train.QueueRunner(self.val_data_queue, [self.val_data_enqueue_op] * self.num_val_data_enqueue_threads)
         tf.train.add_queue_runner(qr_val_data)
 
-        # add graph to summary
-        self.summariser.add_graph(self.sess.graph)
-
         # init variables
         self.sess.run(tf.global_variables_initializer())
+
+        # add graph to summary
+        self.summariser.add_graph(self.sess.graph)
 
         # initialise weights (N.B. pretrained weights must be loaded after calling tf.global_variables_initializer()
         if weights_init == 'pre_trained':

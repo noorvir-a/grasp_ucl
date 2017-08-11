@@ -40,10 +40,10 @@ debug: 0                                # run in debug mode or not
 num_epochs: 50
 batch_size: 150
 optimiser: adam                         # adam, momentum or rmsprop
-loss: xentropy                         # l2, xentropy, wxentropy, or sparse
-learning_rate: 0.01                  # TODO
-momentum_rate: 0.7
-exponential_decay: 0                  # use learning-rate decay - 0 or 1
+loss: momentum                         # l2, xentropy, wxentropy, or sparse
+learning_rate: 0.001                  # TODO
+momentum_rate: 0.5
+exponential_decay: 1                  # use learning-rate decay - 0 or 1
 lr_decay_rate: 0.96
 
 pos_train_frac: 0.5                     # fraction of positive training samples (only valid for binary classification)
@@ -73,6 +73,7 @@ architecture:
     - conv5
     - fc6
     - fc7
+    - fc8
   retrain_layers:                       # layers of AlexNet to discard
     - conv1
     - conv2

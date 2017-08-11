@@ -204,6 +204,18 @@ class GUANt(object):
         # Load the weights into memory
         weights_dict = np.load(self.pt_weights_file, encoding='bytes').item()
 
+
+        # original weights of first convolution layer
+        org_conv1_wt = weights_dict['conv1'][0]
+        # use only the first channel
+        conv1_wt = np.zeros([11, 11, 1, 96])
+
+        # TODO: change this to a non-linear formula
+        conv1_wt[:, :, 0, :] = org_conv1_wt[:, :, 0, :]
+        # conv1_wt[:, :, 0, :] = org_conv1_wt[:, :, 0, :] + org_conv1_wt[:, :, 0, :] + org_conv1_wt[:, :, 0, :]
+
+        weights_dict['conv1'][0] = np.copy(conv1_wt)
+
         # Loop over all layer names stored in the weights dict
         for op_name in weights_dict:
             if op_name not in self.load_layers:
@@ -229,10 +241,10 @@ class GUANt(object):
     def _load_weights_from_checkpoint(self):
         """ Load weights from checkpoint file."""
 
-        logging.info('Loading weights from checkpoint')
-        logging.info('Checkpoint path: checkpoint_path')
-
         checkpoint_path = os.path.join(self.checkpoint_dir, self.checkpoint_filename)
+        logging.info('Loading weights from checkpoint')
+        logging.info('Checkpoint path %s: ' % checkpoint_path)
+
         reader = tf.train.NewCheckpointReader(checkpoint_path)
 
         # var_list = [var for var in tf.trainable_variables() if var.name.split('/')[0] in self.retrain_layers]
@@ -464,18 +476,12 @@ class GUANt(object):
         # init validation network
         self._get_predition_network()
 
-        # initialise weights
-        if weights_init == 'pre_trained':
-            self._load_pretrained_weights()
-        elif weights_init == 'checkpoint':
-            self._load_weights_from_checkpoint()
-        else:
-            if self.weights_init_type == 'gaussian':
-                pass
-            elif self.weights_init_type == 'truncated_normal':
-                pass
-            elif self.weights_init_type == 'xavier':
-                pass
+        if self.weights_init_type == 'gaussian':
+            pass
+        elif self.weights_init_type == 'truncated_normal':
+            pass
+        elif self.weights_init_type == 'xavier':
+            pass
 
         # metrics
         self._init_metric_ops()
@@ -510,15 +516,37 @@ class GUANt(object):
 
         # setup weight decay
 
-
         # number of batches per epoch
         batches_per_epoch = int(self.num_training_samples/self.batch_size)
+
+        # use multiple threads to load data
+        coord = tf.train.Coordinator()
+
+        if not self.debug:
+            # training-data threads
+            qr_train_data = tf.train.QueueRunner(self.train_data_queue, [self.train_data_enqueue_op] * self.num_train_data_enqueue_threads)
+            # add QueueRunners to default collection
+            tf.train.add_queue_runner(qr_train_data)
+
+        # validation-data threads
+        qr_val_data = tf.train.QueueRunner(self.val_data_queue, [self.val_data_enqueue_op] * self.num_val_data_enqueue_threads)
+        tf.train.add_queue_runner(qr_val_data)
+
+        # add graph to summary
+        self.summariser.add_graph(self.sess.graph)
 
         # init variables
         self.sess.run(tf.global_variables_initializer())
 
-        # add graph to summary
-        self.summariser.add_graph(self.sess.graph)
+        # initialise weights (N.B. pretrained weights must be loaded after calling tf.global_variables_initializer()
+        if weights_init == 'pre_trained':
+            self._load_pretrained_weights()
+        elif weights_init == 'checkpoint':
+            self._load_weights_from_checkpoint()
+
+        # freeze graph and start threads
+        self._graph.finalize()
+        threads = tf.train.start_queue_runners(sess=self.sess, coord=coord)
 
         # log info about training
         logging.info('------------------------------------------------')
@@ -536,35 +564,17 @@ class GUANt(object):
         logging.info('Momentum Rate: %s' % str(self.momentum_rate))
         logging.info('Weights Initialisation Type: %s' % weights_init)
         logging.info('Debug: %s' % str(bool(int(self.debug))))
+        logging.info('Variables to be trained: %s' % str([var.name for var in var_list]))
         logging.info('------------------------------------------------')
 
-        # use multiple threads to load data
-        coord = tf.train.Coordinator()
-
-        if not self.debug:
-            # training-data threads
-            qr_train_data = tf.train.QueueRunner(self.train_data_queue, [self.train_data_enqueue_op] * self.num_train_data_enqueue_threads)
-            # add QueueRunners to default collection
-            tf.train.add_queue_runner(qr_train_data)
-
-        # validation-data threads
-        qr_val_data = tf.train.QueueRunner(self.val_data_queue, [self.val_data_enqueue_op] * self.num_val_data_enqueue_threads)
-        tf.train.add_queue_runner(qr_val_data)
-
-        self._graph.finalize()
-
-        # start threads
-        threads = tf.train.start_queue_runners(sess=self.sess, coord=coord)
-
-        logging.info('Waiting 60 seconds to load queues')
         time.sleep(60)
+        logging.info('\nWaiting 60 seconds to load queues')
 
-        logging.info('Starting Optimisation')
+        logging.info('Starting Optimisation\n')
 
         # total training steps
         step = 0
         # print trainable variables
-        logging.info('Variables to be trained: %s' % str([var.name for var in var_list]))
 
         st = time.time()
         with tf.device('/gpu:0'):

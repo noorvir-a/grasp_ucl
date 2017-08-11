@@ -548,6 +548,9 @@ class GUANt(object):
         self._graph.finalize()
         threads = tf.train.start_queue_runners(sess=self.sess, coord=coord)
 
+        logging.info('\nWaiting 60 seconds to load queues')
+        time.sleep(60)
+
         # log info about training
         logging.info('------------------------------------------------')
         logging.info('Number of Classes: %s' % str(self.num_classes))
@@ -567,10 +570,7 @@ class GUANt(object):
         logging.info('Variables to be trained: %s' % str([var.name for var in var_list]))
         logging.info('------------------------------------------------')
 
-        time.sleep(60)
-        logging.info('\nWaiting 60 seconds to load queues')
-
-        logging.info('Starting Optimisation\n')
+        logging.info('\nStarting Optimisation\n')
 
         # total training steps
         step = 0
@@ -586,7 +586,7 @@ class GUANt(object):
                     # ---------------------------------
                     # 1. optimise
                     # ---------------------------------
-                    if batch % self.log_frequency != 0:
+                    if batch % self.log_frequency != 0 and batch != 1:
                         # only run optimiser for max speed
                         self.sess.run(optimiser)
 

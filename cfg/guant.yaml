@@ -39,8 +39,8 @@ debug: 0                                # run in debug mode or not
 # Training parameters
 num_epochs: 50
 batch_size: 150
-optimiser: adam                         # adam, momentum or rmsprop
-loss: momentum                         # l2, xentropy, wxentropy, or sparse
+optimiser: momentum                         # adam, momentum or rmsprop
+loss: xentropy                          # l2, xentropy, wxentropy, or sparse
 learning_rate: 0.001                  # TODO
 momentum_rate: 0.5
 exponential_decay: 1                  # use learning-rate decay - 0 or 1

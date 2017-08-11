@@ -39,11 +39,11 @@ debug: 0                                # run in debug mode or not
 # Training parameters
 num_epochs: 50
 batch_size: 150
-optimiser: momentum                         # adam, momentum or rmsprop
+optimiser: adam                         # adam, momentum or rmsprop
 loss: xentropy                         # l2, xentropy, wxentropy, or sparse
-learning_rate: 0.0009                  # TODO
+learning_rate: 0.01                  # TODO
 momentum_rate: 0.7
-exponential_decay: 1                  # use learning-rate decay - 0 or 1
+exponential_decay: 0                  # use learning-rate decay - 0 or 1
 lr_decay_rate: 0.96
 
 pos_train_frac: 0.5                     # fraction of positive training samples (only valid for binary classification)

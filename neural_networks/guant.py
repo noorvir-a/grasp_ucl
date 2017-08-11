@@ -435,7 +435,7 @@ class GUANt(object):
         """ Initialise training routine and optimise"""
 
         # create handler for CNTRL+C signal
-        signal.signal(signal.SIGINT, self._signal_handler())
+        signal.signal(signal.SIGINT, self._signal_handler)
 
         # setup common filename and logging
         self.model_timestamp = '{:%y-%m-%d-%H:%M:%S}'.format(datetime.now())
@@ -487,6 +487,9 @@ class GUANt(object):
         if self.exponential_decay:
             self.learning_rate = tf.train.exponential_decay(self.learning_rate, tf.multiply(batch_num, self.batch_size),
                                                             self.lr_decay_step, self.lr_decay_rate, name='lr_exponential_decay')
+        else:
+            # for consistency
+            self.learning_rate = tf.constant(self.learning_rate)
 
         var_list = [var for var in tf.trainable_variables() if var.name.split('/')[0] in self.retrain_layers]
 
@@ -528,8 +531,8 @@ class GUANt(object):
         logging.info('Fraction of Dataset Used: %s' % str(self.config['data_used_fraction']))
         logging.info('Fraction of Positive samples: %s' % str(self.config['pos_train_frac']))
         logging.info('Batch Size: %s' % str(self.batch_size))
-        logging.info('Learning Rate: %s' % str(self.learning_rate))
-        logging.info('Learning Rate Exponential Decay: %s'% str(bool(int(self.exponential_decay))))
+        logging.info('Learning Rate: %s' % str(self.sess.run(self.learning_rate)))
+        logging.info('Learning Rate Exponential Decay: %s' % str(bool(int(self.exponential_decay))))
         logging.info('Momentum Rate: %s' % str(self.momentum_rate))
         logging.info('Weights Initialisation Type: %s' % weights_init)
         logging.info('Debug: %s' % str(bool(int(self.debug))))

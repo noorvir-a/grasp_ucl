@@ -8,6 +8,7 @@ import pickle as pkl
 import logging
 import threading
 import pandas
+import signal
 import time
 import os
 
@@ -90,6 +91,19 @@ class GUANt(object):
         self.num_classes = self.config['architecture']['num_classes']
         self.retrain_layers = self.config['architecture']['retrain_layers']
         self.load_layers = self.config['architecture']['load_layers']
+
+    def _signal_handler(self):
+        """ Handle CNTRL+C signal and shutdown process"""
+
+        logging.info('CNTRL+C signal received')
+        # close TensorBoard
+        self._close_tensorboard()
+        logging.info('Closing TensorFlow session')
+        # close session
+        self.sess.close()
+        logging.info('Forcefully exiting')
+        exit()
+
 
     def _get_data_metrics(self):
         """ Get metrics on training data """
@@ -419,6 +433,9 @@ class GUANt(object):
 
     def optimise(self, weights_init='pre_trained'):
         """ Initialise training routine and optimise"""
+
+        # create handler for CNTRL+C signal
+        signal.signal(signal.SIGINT, self._signal_handler())
 
         # setup common filename and logging
         self.model_timestamp = '{:%y-%m-%d-%H:%M:%S}'.format(datetime.now())

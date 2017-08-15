@@ -89,8 +89,15 @@ class GUANt(object):
         self.img_height = self.config['architecture']['img_height']
         self.img_channels = self.config['architecture']['img_channels']
         self.num_classes = self.config['architecture']['num_classes']
+        self.pose_dim = self.config['architecture']['pose_dim']
         self.retrain_layers = self.config['architecture']['retrain_layers']
         self.load_layers = self.config['architecture']['load_layers']
+
+        # use pose input or not
+        self.use_pose = 'fc7p' in self.retrain_layers
+        if self.use_pose:
+            self.retrain_layers.append('pc1')
+
 
     def _signal_handler(self, sig_num, frame):
         """ Handle CNTRL+C signal and shutdown process"""
@@ -319,17 +326,17 @@ class GUANt(object):
         self.loader = DataLoader(self, self.dataset_config)
         self.num_training_samples = self.loader.num_train
 
-        # initialise Tensorflow Session and variables
+        # initialise TensorFlow Session and variables
         self.sess = self._open_session()
         self._tensorflow_initialised = True
 
         with tf.name_scope('train_data_loader'):
             # wrap python function to load data from numpy files
-            train_imgs, train_labels = tf.py_func(self.loader.load_train_data, inp=[], Tout=[tf.float32, tf.float32])
+            train_imgs, train_poses, train_labels = tf.py_func(self.loader.load_train_data, inp=[], Tout=[tf.float32, tf.float32, tf.float32])
 
         with tf.name_scope('val_data_loader'):
             # wrap python function to load data from numpy files
-            val_imgs, val_labels = tf.py_func(self.loader.load_val_data, inp=[], Tout=[tf.float32, tf.float32])
+            val_imgs, val_poses, val_labels = tf.py_func(self.loader.load_val_data, inp=[], Tout=[tf.float32, tf.float32, tf.float32])
 
         # ---------------------------------
         # 1. Training Queues
@@ -337,27 +344,30 @@ class GUANt(object):
         # queue to load data from file into training buffer
         with tf.name_scope('train_data_queue'):
             if not self.debug:
-                self.train_data_queue = tf.FIFOQueue(self.train_data_queue_capacity, dtypes=[tf.float32, tf.float32],
+                self.train_data_queue = tf.FIFOQueue(self.train_data_queue_capacity, dtypes=[tf.float32, tf.float32, tf.float32],
                                                      shapes=[[self.img_width, self.img_height, self.img_channels],
+                                                             [self.pose_dim],
                                                              [self.num_classes]], name='train_data_queue')
 
-                self.train_data_enqueue_op = self.train_data_queue.enqueue_many([train_imgs, train_labels], name='enqueue_op')
+                self.train_data_enqueue_op = self.train_data_queue.enqueue_many([train_imgs, train_poses, train_labels], name='enqueue_op')
                 self.data_queue_size_op = self.train_data_queue.size()
 
         # queue data into batches from from buffer
         with tf.name_scope('train_batch_queue'):
             if self.debug:
-                train_batch_imgs, train_batch_labels = tf.py_func(self.loader.debug_load_and_enqueue, inp=[], Tout=[tf.float32, tf.float32])
+                train_batch_imgs, train_batch_poses, train_batch_labels = tf.py_func(self.loader.debug_load_and_enqueue, inp=[], Tout=[tf.float32, tf.float32, tf.float32])
             else:
-                train_batch_imgs, train_batch_labels = self.loader.get_train_data()
+                train_batch_imgs, train_batch_poses, train_batch_labels = self.loader.get_train_data()
 
-            self.train_input_node, self.train_label_node = tf.train.batch([train_batch_imgs, train_batch_labels],
-                                                                          self.batch_size,
-                                                                          num_threads=self.num_train_batch_enqueue_threads,
-                                                                          capacity=self.train_batch_queue_capacity,
-                                                                          enqueue_many=True,
-                                                                          shapes=[[self.img_width, self.img_height,
-                                                                                   self.img_channels], [self.num_classes]])
+            self.train_input_node, self.train_pose_node, self.train_label_node = tf.train.batch([train_batch_imgs, train_batch_poses, train_batch_labels],
+                                                                                                self.batch_size,
+                                                                                                num_threads=self.num_train_batch_enqueue_threads,
+                                                                                                capacity=self.train_batch_queue_capacity,
+                                                                                                enqueue_many=True,
+                                                                                                shapes=[[self.img_width, self.img_height,
+                                                                                                         self.img_channels],
+                                                                                                        [self.pose_dim],
+                                                                                                        [self.num_classes]])
 
         # ---------------------------------
         # 2. Validation Queues
@@ -365,22 +375,25 @@ class GUANt(object):
         # queue to load data from file into validation buffer
         with tf.name_scope('val_data_queue'):
             # validation data queue
-            self.val_data_queue = tf.FIFOQueue(self.val_data_queue_capacity, dtypes=[tf.float32, tf.float32],
+            self.val_data_queue = tf.FIFOQueue(self.val_data_queue_capacity, dtypes=[tf.float32, tf.float32, tf.float32],
                                                shapes=[[self.img_width, self.img_height, self.img_channels],
+                                                       [self.pose_dim],
                                                        [self.num_classes]], name='val_data_queue')
 
-            self.val_data_enqueue_op = self.val_data_queue.enqueue_many([val_imgs, val_labels], name='enqueue_op')
+            self.val_data_enqueue_op = self.val_data_queue.enqueue_many([val_imgs, val_poses, val_labels], name='enqueue_op')
 
         # queue data into batches from from buffer
         with tf.name_scope('val_batch_queue'):
-            val_batch_imgs, val_batch_labels = self.loader.get_val_data()
-            self.val_input_node, self.val_label_node = tf.train.batch([val_batch_imgs, val_batch_labels],
-                                                                      self.batch_size,
-                                                                      num_threads=self.num_val_batch_enqueue_threads,
-                                                                      capacity=self.val_batch_queue_capacity,
-                                                                      enqueue_many=True,
-                                                                      shapes=[[self.img_width, self.img_height,
-                                                                               self.img_channels], [self.num_classes]])
+            val_batch_imgs, val_batch_poses, val_batch_labels = self.loader.get_val_data()
+            self.val_input_node, self.val_pose_node, self.val_label_node = tf.train.batch([val_batch_imgs, val_batch_poses, val_batch_labels],
+                                                                                          self.batch_size,
+                                                                                          num_threads=self.num_val_batch_enqueue_threads,
+                                                                                          capacity=self.val_batch_queue_capacity,
+                                                                                          enqueue_many=True,
+                                                                                          shapes=[[self.img_width, self.img_height,
+                                                                                                   self.img_channels],
+                                                                                                  [self.pose_dim],
+                                                                                                  [self.num_classes]])
 
 
     def _init_metric_ops(self):
@@ -411,12 +424,13 @@ class GUANt(object):
             # create prediction graph
             self._pred_input_node = tf.placeholder(tf.float32, [self.batch_size, self.img_width, self.img_height, self.img_channels],
                                                    name='prediction_input_node')
+            self._pred_pose_node = tf.placeholder(tf.float32, [self.batch_size, self.pose_dim], name='prediction_pose_node')
             self._pred_label_node = tf.placeholder(tf.float32, [self.batch_size, self.num_classes], name='ground_truth_labels')
 
             # with tf.variable_scope('training_network'):
             with tf.name_scope('prediction_network'):
                 with tf.variable_scope(tf.get_variable_scope(), reuse=True):
-                    self._pred_network_output = self.create_network(self._pred_input_node)
+                    self._pred_network_output = self.create_network(self._pred_input_node, self._pred_pose_node)
 
             # metric operations
             with tf.name_scope('prediction_operations'):
@@ -433,12 +447,12 @@ class GUANt(object):
         self._pred_network_initialised = True
 
 
-    def create_network(self, input_data):
+    def create_network(self, input_data, pose_data):
         """ Create GUAN-t on top of AlexNet"""
 
         init = tf.contrib.layers.xavier_initializer()
         # initialise raw AlexNet
-        alexnet = AlexNet(input_data, self.num_classes, retrain_layers=self.retrain_layers, initialiser=init)
+        alexnet = AlexNet(input_data, pose_data, self.num_classes, use_pose=self.use_pose, retrain_layers=self.retrain_layers, initialiser=init)
 
         # network output
         return alexnet.layers['fc8']
@@ -472,7 +486,7 @@ class GUANt(object):
 
         self._get_data_metrics()
 
-        self.network_output = self.create_network(self.train_input_node)
+        self.network_output = self.create_network(self.train_input_node, self.train_pose_node)
 
         # init validation network
         self._get_predition_network()
@@ -555,6 +569,7 @@ class GUANt(object):
         # log info about training
         logging.info('------------------------------------------------')
         logging.info('Number of Classes: %s' % str(self.num_classes))
+        logging.info('Pose used: %s' % str(bool(int(self.use_pose))))
         logging.info('Number of Training Data-points: %s' % str(self.loader.num_train))
         logging.info('Loss: %s' % self.config['loss'])
         logging.info('Optimiser: %s' % self.config['optimiser'])

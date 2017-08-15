@@ -65,6 +65,7 @@ architecture:
   img_height: 227
   img_channels: 1
   num_classes: 2                        # 2 for binary 6 for quality
+  pose_dim: 1
   load_layers:                       # layers of AlexNet to retrain
     - conv1
     - conv2
@@ -82,4 +83,5 @@ architecture:
     - conv5
     - fc6
     - fc7
+    - fc7p
     - fc8

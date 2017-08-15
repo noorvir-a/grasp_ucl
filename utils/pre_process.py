@@ -67,9 +67,11 @@ class DataLoader(object):
 
         # get image files
         self.img_filenames = [f for f in all_filenames if f.find(self.filename_templates['depth_imgs']) > -1]
+        self.pose_filenames = [f for f in all_filenames if f.find(self.filename_templates['poses']) > -1]
         self.label_filenames = [f for f in all_filenames if f.find(self.filename_templates['labels']) > -1]
 
         self.img_filenames.sort(key=lambda x: int(x[-9:-4]))
+        self.pose_filenames.sort(key=lambda x: int(x[-9:-4]))
         self.label_filenames.sort(key=lambda x: int(x[-9:-4]))
 
         # randomly choose files for training and validation
@@ -80,7 +82,7 @@ class DataLoader(object):
         num_val_files = int(num_files_used * self.val_fraction)
         num_test_files = int(num_files_used * self.test_fraction)
 
-        if num_train_files == 0:
+        if num_val_files == 0:
             raise ValueError('Number of files used must be more than Zero.')
 
         # get total number of training datapoints
@@ -96,6 +98,11 @@ class DataLoader(object):
         self.val_img_filenames = self.img_filenames[train_id_end: val_id_end]
         self.test_img_filenames = self.img_filenames[val_id_end: test_id_end]
 
+        # pose filenames
+        self.train_pose_filenames = self.pose_filenames[: train_id_end]
+        self.val_pose_filenames = self.pose_filenames[train_id_end: val_id_end]
+        self.test_pose_filenames = self.pose_filenames[val_id_end: test_id_end]
+
         # label filenames
         self.train_label_filenames = self.label_filenames[: train_id_end]
         self.val_label_filenames = self.label_filenames[train_id_end: val_id_end]
@@ -106,7 +113,8 @@ class DataLoader(object):
         """ Set-up operations to create batches"""
 
         with tf.name_scope('train_data_queue'):
-            img_data, label_data = self._network.train_data_queue.dequeue_many(n=self._network.num_train_data_dequeue, name='dequeue_op')
+            img_data, pose_data, label_data = self._network.train_data_queue.dequeue_many(n=self._network.num_train_data_dequeue,
+                                                                                          name='dequeue_op')
 
         with tf.name_scope('train_batch_loader'):
             if self._network.num_classes == 2:
@@ -122,9 +130,11 @@ class DataLoader(object):
 
             # get positive data-points
             pos_img_data = tf.gather(img_data, pos_data_idx)
+            pos_pose_data = tf.gather(pose_data, pos_data_idx)
             pos_label_data = tf.gather(label_data, pos_data_idx)
 
             neg_img_data = tf.gather(img_data, neg_data_idx)
+            neg_pose_data = tf.gather(pose_data, neg_data_idx)
             neg_label_data = tf.gather(label_data, neg_data_idx)
 
             num_neg = tf.cast(num_neg_multipler * tf.cast(tf.shape(pos_img_data)[0], dtype=tf.float32), dtype=tf.int32)
@@ -136,9 +146,11 @@ class DataLoader(object):
 
             # get negative indices
             neg_img_data = tf.gather(neg_img_data, neg_data_idx)
+            neg_pose_data = tf.gather(neg_pose_data, neg_data_idx)
             neg_label_data = tf.gather(neg_label_data, neg_data_idx)
 
             imgs = tf.concat([pos_img_data, neg_img_data], axis=0)
+            poses = tf.concat([pos_pose_data, neg_pose_data], axis=0)
             labels = tf.concat([pos_label_data, neg_label_data], axis=0)
 
             # shuffle data
@@ -146,15 +158,17 @@ class DataLoader(object):
             data_idx = tf.random_shuffle(tf.range(0, num_data_points, delta=1))
 
             imgs = tf.gather(imgs, data_idx)
+            poses = tf.gather(poses, data_idx)
             labels = tf.gather(labels, data_idx)
 
-        return imgs, labels
+        return imgs, poses, labels
 
 
     def get_val_data(self):
         """ Dequeue data from validation buffer"""
         with tf.name_scope('val_data_queue'):
-            img_data, label_data = self._network.val_data_queue.dequeue_many(n=self._network.num_val_data_dequeue, name='dequeue_op')
+            img_data, pose_data, label_data = self._network.val_data_queue.dequeue_many(n=self._network.num_val_data_dequeue,
+                                                                                        name='dequeue_op')
 
         with tf.name_scope('val_batch_loader'):
             if self._network.num_classes == 2:
@@ -170,9 +184,11 @@ class DataLoader(object):
 
             # get positive data-points
             pos_img_data = tf.gather(img_data, pos_data_idx)
+            pos_pose_data = tf.gather(pose_data, pos_data_idx)
             pos_label_data = tf.gather(label_data, pos_data_idx)
 
             neg_img_data = tf.gather(img_data, neg_data_idx)
+            neg_pose_data = tf.gather(pose_data, neg_data_idx)
             neg_label_data = tf.gather(label_data, neg_data_idx)
 
             num_neg = tf.cast(num_neg_multipler * tf.cast(tf.shape(pos_img_data)[0], dtype=tf.float32), dtype=tf.int32)
@@ -184,9 +200,11 @@ class DataLoader(object):
 
             # get negative indices
             neg_img_data = tf.gather(neg_img_data, neg_data_idx)
+            neg_pose_data = tf.gather(neg_pose_data, neg_data_idx)
             neg_label_data = tf.gather(neg_label_data, neg_data_idx)
 
             imgs = tf.concat([pos_img_data, neg_img_data], axis=0)
+            poses = tf.concat([pos_pose_data, neg_pose_data], axis=0)
             labels = tf.concat([pos_label_data, neg_label_data], axis=0)
 
             # shuffle data
@@ -194,9 +212,10 @@ class DataLoader(object):
             data_idx = tf.random_shuffle(tf.range(0, num_data_points, delta=1))
 
             imgs = tf.gather(imgs, data_idx)
+            poses = tf.gather(poses, data_idx)
             labels = tf.gather(labels, data_idx)
 
-        return imgs, labels
+        return imgs, poses, labels
 
 
     def load_train_data(self):
@@ -205,15 +224,18 @@ class DataLoader(object):
         # get filename to load
         file_id = np.random.choice(np.shape(self.train_img_filenames)[0], size=1)
         img_filename = self.train_img_filenames[file_id]
+        pose_filename = self.train_pose_filenames[file_id]
         label_filename = self.train_label_filenames[file_id]
 
         # load data files
         imgs = np.load(os.path.join(self._network.dataset_dir, img_filename))['arr_0']
+        poses = np.load(os.path.join(self._network.dataset_dir, pose_filename))['arr_0']
         labels = np.load(os.path.join(self._network.dataset_dir, label_filename))['arr_0']
 
         imgs = np.repeat(imgs, self._network.img_channels, axis=self._network.img_channels)
+        poses = poses[:, 2:3]
 
-        return [imgs.astype(np.float32), labels.astype(np.float32)]
+        return [imgs.astype(np.float32), poses.astype(np.float32), labels.astype(np.float32)]
 
 
     def load_val_data(self):
@@ -222,16 +244,19 @@ class DataLoader(object):
         # get filename to load
         file_id = np.random.choice(np.shape(self.val_img_filenames)[0], size=1)
         img_filename = self.val_img_filenames[file_id]
+        pose_filename = self.val_pose_filenames[file_id]
         label_filename = self.val_label_filenames[file_id]
 
         # load data files
         imgs = np.load(os.path.join(self._network.dataset_dir, img_filename))['arr_0']
+        poses = np.load(os.path.join(self._network.dataset_dir, pose_filename))['arr_0']
         labels = np.load(os.path.join(self._network.dataset_dir, label_filename))['arr_0']
 
         # copy 1st channel into 2nd and 3rd
         imgs = np.repeat(imgs, self._network.img_channels, axis=self._network.img_channels)
+        poses = poses[:, 2:3]
 
-        return [imgs.astype(np.float32), labels.astype(np.float32)]
+        return [imgs.astype(np.float32), poses.astype(np.float32), labels.astype(np.float32)]
 
 
     ###### DEBUG CODE ######

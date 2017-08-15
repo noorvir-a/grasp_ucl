@@ -2,6 +2,7 @@
 guant:
   filename_templates:
     depth_imgs: depth_ims_stf_227_table
+    poses: hand_poses
     labels: binary_labels                 # binary_labels, one_hot_labels
 
   images_per_file: 1000

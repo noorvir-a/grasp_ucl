@@ -33,7 +33,7 @@ import numpy as np
 class AlexNet(object):
     """Implementation of the AlexNet."""
 
-    def __init__(self, x, num_classes, retrain_layers, initialiser, keep_prob=1, weights_path='DEFAULT'):
+    def __init__(self, x, pose, num_classes, retrain_layers, initialiser, use_pose, keep_prob=1, weights_path='DEFAULT'):
         """Create the graph of the AlexNet model.
 
         Args:
@@ -47,9 +47,11 @@ class AlexNet(object):
         """
         # Parse input arguments into class variables
         self.X = x
+        self.pose = pose
         self.NUM_CLASSES = num_classes
         self.KEEP_PROB = keep_prob
         self.RETRAIN_LAYERS = retrain_layers
+        self.use_pose = use_pose
         self.initialiser = initialiser
 
         # Dictionary to hold individual layers in the network so that we can
@@ -90,9 +92,26 @@ class AlexNet(object):
         fc6 = fc(flattened, 6*6*256, 4096, name='fc6', initialiser=self.initialiser)
         dropout6 = dropout(fc6, self.KEEP_PROB)
 
-        # 7th Layer: FC (w ReLu) -> Dropout
-        fc7 = fc(dropout6, 4096, 4096, name='fc7', initialiser=self.initialiser)
-        dropout7 = dropout(fc7, self.KEEP_PROB)
+        # fully connected layer for pose branch - pc1
+        pc1 = fc(self.pose, 1, 16, name='pc1', initialiser=self.initialiser)
+
+        # create fc7 as sum of pose branch and image branch
+        if self.use_pose:
+            with tf.variable_scope('fc7'):
+                img_fc = tf.get_variable('weights', [4096, 4096], initializer=self.initialiser)
+                fc7_bias = tf.get_variable('biases', [4096], initializer=self.initialiser)
+
+            with tf.variable_scope('fc7p') as scope:
+                pose_fc = tf.get_variable('weights', [16, 4096], initializer=self.initialiser)
+
+            fc7_sum = tf.add(tf.matmul(dropout6, img_fc), tf.matmul(pc1, pose_fc), name=scope.name)
+            fc7 = tf.nn.relu(fc7_sum + fc7_bias)
+            dropout7 = dropout(fc7, self.KEEP_PROB)
+
+        else:
+            # 7th Layer: FC (w ReLu) -> Dropout
+            fc7 = fc(dropout6, 4096, 4096, name='fc7', initialiser=self.initialiser)
+            dropout7 = dropout(fc7, self.KEEP_PROB)
 
         # 8th Layer: FC and return unscaled activations
         fc8 = fc(dropout7, 4096, self.NUM_CLASSES, relu=False, name='fc8', initialiser=self.initialiser)

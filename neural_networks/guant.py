@@ -626,14 +626,15 @@ class GUANt(object):
                         logging.info(self.get_date_time() + ': Validating Network ... ')
 
                         # get data
-                        input_batch, label_batch = self.sess.run([self.val_input_node, self.val_label_node])
-                        val_accuracy, val_error, _ = self.predict(input_batch, label_batch)
+                        input_batch, pose_batch, label_batch = self.sess.run([self.val_input_node, self.val_pose_node, self.val_label_node])
+                        val_accuracy, val_error, _ = self.predict(input_batch, pose_batch, label_batch)
 
                         logging.info(self.get_date_time() + ': epoch = %d, batch = %d, validation accuracy = %.3f' % (epoch, batch, val_accuracy))
                         logging.info('------------------------------------------------')
 
                         # log summaries
                         summary = self.sess.run(self.merged_val_summaries, feed_dict={self._pred_input_node: input_batch,
+                                                                                      self._pred_pose_node: pose_batch,
                                                                                       self._pred_label_node: label_batch})
                         self.summariser.add_summary(summary, step)
 
@@ -662,7 +663,7 @@ class GUANt(object):
         #     self.sess.close()
 
 
-    def predict(self, input_batch, label_batch, model_path=None):
+    def predict(self, input_batch, pose_label, label_batch, model_path=None):
         """ Predict """
 
         with self._graph.as_default():
@@ -687,7 +688,7 @@ class GUANt(object):
 
             # variables to run
             run_vars = [self._pred_accuracy_op, self._pred_error_rate_op, self._pred_network_output, self._pred_predicted_labels]
-            feed_dict = {self._pred_input_node: input_batch, self._pred_label_node: label_batch}
+            feed_dict = {self._pred_input_node: input_batch, self._pred_pose_node: pose_label, self._pred_label_node: label_batch}
             # run
             run_op_outupt = self.sess.run(run_vars, feed_dict=feed_dict)
             # outputs of run op

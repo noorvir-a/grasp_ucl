@@ -28,14 +28,13 @@ from dexnet.database.keys import *
 from perception import RenderMode
 from dexnet.grasping import GraspCollisionChecker, RobotGripper
 import dexnet.database.database as db
-
 from gqcnn import Visualizer as vis2d
 from gqcnn import Grasp2D
-
-
 from grasp_ucl.utils.visualise import UCLVisualiser as vis
 from grasp_ucl.database.transformations import ImageTransform
 
+from jenks import jenks
+from sklearn.cluster import KMeans
 from natsort import natsorted, ns
 import numpy as np
 import cPickle as pkl
@@ -208,7 +207,104 @@ class UCLDatabaseGQCNN(object):
             np.savez(output_file_path, scaled_images)
 
 
-    def create_labels(self):
+    def create_clustered_labels(self, num_bins=6, normalise=True):
+        """ Use Jenks Natural Breaks to bin data """
+
+        # load data
+        print('Loading data...')
+        metric_filenames = self.load_filenames(self.dataset_dir, self.grasp_metric)
+
+        print('Starting label conversion.')
+        st_time = time.time()
+
+        data = np.array([])
+
+        print('Loading data...')
+        for i, filename in enumerate(metric_filenames):
+            file_data = np.load(os.path.join(self.dataset_dir, filename))['arr_0']
+            data = np.concatenate((data, file_data))
+
+            if i % 100 == 0:
+                print('Loading data from file number %d out of %d' % (i + 1, len(metric_filenames)))
+
+        # get the bin edges using the Jenks Natural Breaks algorithm
+        # bin_edges = jenks(data, num_bins)
+        nzero_data_idx = np.where(data != 0)
+        nzero_data = data[nzero_data_idx]
+
+        if normalise:
+            nzero_data = (nzero_data - np.mean(nzero_data))/np.std(nzero_data)
+            # clip data to 3 standard deviations
+            nzero_data = np.clip(nzero_data, -3 * np.std(nzero_data), 3 * np.std(nzero_data))
+
+        print('Clustering %d data-points' % len(nzero_data))
+        # use one dimensional k-means clustering to get bin-edges
+        km = KMeans(n_clusters=num_bins-1, n_init=20, tol=0.00001, n_jobs=-1)
+        km.fit(np.reshape(nzero_data, [-1,1]))
+        print('Done!')
+
+        bin_centers = np.squeeze(km.cluster_centers_)
+        data_labels = np.squeeze(km.labels_)
+        bin_sorted_idx = np.argsort(bin_centers)
+        labels = np.sort(bin_sorted_idx)
+
+        bin_idx_map = {}
+        for i, label in enumerate(bin_sorted_idx):
+            bin_idx_map[label] = i
+
+        print('Binning data.')
+        binned_nz_data = np.zeros((np.shape(data_labels)))
+        for i, label in enumerate(data_labels):
+            binned_nz_data[i] = bin_idx_map[label]
+        print('Done!')
+
+        # add zero elements back
+        binned_data = np.zeros((np.shape(data)))
+        binned_data[nzero_data_idx] = binned_nz_data
+
+        # convert to one_hot representation
+        print('Converting data to one-hot vector representation...')
+        one_hot_data = self.create_one_hot(binned_data, labels)
+
+        # save to files
+        start_index = 0
+        end_index = self.config['num_points_per_file']
+        print('Starting file write...')
+        for i, filename in enumerate(metric_filenames):
+
+            # filenames
+            binned_label_filename = 'binned_cls_labels_' + filename[-9:-4]
+            binned_label_path = os.path.join(self.dataset_output_dir, binned_label_filename)
+
+            one_hot_label_filename = 'one_hot_cls_labels_' + filename[-9:-4]
+            one_hot_label_path = os.path.join(self.dataset_output_dir, one_hot_label_filename)
+
+            if end_index <= (len(binned_data) - 1):
+                binned_file_data = binned_data[start_index: end_index]
+                one_hot_file_data = one_hot_data[start_index: end_index, :]
+
+                start_index = end_index
+                end_index = end_index + self.config['num_points_per_file']
+
+            else:
+                binned_file_data = binned_data[start_index:]
+                one_hot_file_data = one_hot_data[start_index:, :]
+
+            # add a extra array dimension for convenience at training time
+            binned_file_data = np.expand_dims(binned_file_data, axis=1)
+
+            # save
+            np.savez_compressed(binned_label_path, binned_file_data)
+            np.savez_compressed(one_hot_label_path, one_hot_file_data)
+
+            if i % 100 == 0:
+                print('Saving file number %d out of %d' % (i + 1, len(metric_filenames)))
+
+        print('All labels written to file in %s(s)' % str(time.time() - st_time))
+
+
+
+    def create_percentile_labels(self):
         """ Creates and saves one-hot normalised and binned grasp quality labels for each label file in GQCNN dataset"""
 
         if not hasattr(self, 'metric_max'):
@@ -390,13 +486,23 @@ class UCLDatabaseGQCNN(object):
         return binned_data[0], binned_data[1]
 
     @staticmethod
-    def bin(data, bin_step=0.2, min_bin=0):
+    def bin(data, method='percentile', bin_edges=None, bin_step=0.2, min_bin=0):
         """ Digitise data into bins of step bin_step. Expects data normalise to the interval [0, 1] """
+
+        if method == 'clustering' and bin_edges is None:
+            raise ValueError('Must supply bin_edges for Jenks Natural Breaks based binning. Exiting.')
 
         # make sure data is an array
         data = np.array(data)
 
-        return min_bin + np.round(data/bin_step) * bin_step
+        if method == 'percentile':
+            binned_data = min_bin + np.round(data/bin_step) * bin_step
+        elif method == 'clustering':
+            binned_data = np.digitize(data, bin_edges)
+        else:
+            raise ValueError('Unknown binning method "%s" specified' % method)
+
+        return binned_data
 
     @staticmethod
     def create_one_hot(data, labels):

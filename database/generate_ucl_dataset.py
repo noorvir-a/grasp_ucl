@@ -239,18 +239,20 @@ class UCLDatabaseGQCNN(object):
 
         print('Clustering %d data-points' % len(nzero_data))
         # use one dimensional k-means clustering to get bin-edges
+        clus_st = time.time()
         km = KMeans(n_clusters=num_bins-1, n_init=20, tol=0.00001, n_jobs=-1)
         km.fit(np.reshape(nzero_data, [-1,1]))
-        print('Done!')
+        print('Finished clustering in %.4f seconds!' % (time.time() - clus_st))
 
         bin_centers = np.squeeze(km.cluster_centers_)
         data_labels = np.squeeze(km.labels_)
         bin_sorted_idx = np.argsort(bin_centers)
-        labels = np.sort(bin_sorted_idx)
+        labels = np.arange(0, np.shape(bin_sorted_idx)[0] + 1, 1)
 
         bin_idx_map = {}
         for i, label in enumerate(bin_sorted_idx):
-            bin_idx_map[label] = i
+            # add one because bin zero is reserved for grasps in collision
+            bin_idx_map[label] = i + 1
 
         print('Binning data.')
         binned_nz_data = np.zeros((np.shape(data_labels)))
@@ -273,10 +275,10 @@ class UCLDatabaseGQCNN(object):
         for i, filename in enumerate(metric_filenames):
 
             # filenames
-            binned_label_filename = 'binned_cls_labels_' + filename[-9:-4]
+            binned_label_filename = 'binned_clus_labels_' + filename[-9:-4]
             binned_label_path = os.path.join(self.dataset_output_dir, binned_label_filename)
 
-            one_hot_label_filename = 'one_hot_cls_labels_' + filename[-9:-4]
+            one_hot_label_filename = 'one_hot_clus_labels_' + filename[-9:-4]
             one_hot_label_path = os.path.join(self.dataset_output_dir, one_hot_label_filename)
 
             if end_index <= (len(binned_data) - 1):
@@ -584,6 +586,7 @@ class UCLDatabaseDexnet(object):
         self.gripper_name = self.config['gripper_name']
         self.grasp_metric = self.config['grasp_metric']
         self.cache_datapoints_limit = self.config['cache_datapoints_limit']
+        self.img_cache_datapoints_limit = self.config['img_cache_datapoints_limit']
 
         # params related to collision checking
         self._setup_collision_checker_params()
@@ -865,7 +868,7 @@ class UCLDatabaseDexnet(object):
                                    'vis': {'camera_intr': corrected_camera_intr}}
                     obj_renders[obj.key][pose.id].append(pose_sample)
 
-            if current_data_points > self.cache_datapoints_limit or (obj_idx + 1) == len(objs):
+            if current_data_points > self.img_cache_datapoints_limit or (obj_idx + 1) == len(objs):
                 # cache filenames
                 cache_filename = 'image_cache' + str(pickle_file_num) + '.pkl'
                 image_cache_filename = os.path.join(self.dataset_cache_dir + cache_filename)

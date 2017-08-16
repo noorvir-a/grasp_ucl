@@ -142,7 +142,9 @@ class DataLoader(object):
             # get indices of negative data-points
             num_neg = tf.minimum(num_neg, tf.shape(neg_data_idx)[0])
             num_neg = tf.maximum(num_neg, 1)                        # TODO: really ugly hack for when num_neg =0 . change this
-            neg_data_idx = tf.random_uniform([num_neg], 0, tf.shape(neg_data_idx)[0], dtype=tf.int32)
+            neg_data_idx = tf.cond(tf.shape(neg_data_idx)[0] > 0,
+                                   true_fn=lambda: tf.random_uniform([num_neg], 0, tf.shape(neg_data_idx)[0], dtype=tf.int32),
+                                   false_fn=lambda: tf.cast(neg_data_idx, dtype=tf.int32))
 
             # get negative indices
             neg_img_data = tf.gather(neg_img_data, neg_data_idx)
@@ -196,8 +198,9 @@ class DataLoader(object):
             # get indices of negative data-points
             num_neg = tf.minimum(num_neg, tf.shape(neg_data_idx)[0])
             num_neg = tf.maximum(num_neg, 1)                        # TODO: really ugly hack for when num_neg =0 . change this
-            neg_data_idx = tf.random_uniform([num_neg], 0, tf.shape(neg_data_idx)[0], dtype=tf.int32)
-
+            neg_data_idx = tf.cond(tf.shape(neg_data_idx)[0] > 0,
+                                   true_fn=lambda: tf.random_uniform([num_neg], 0, tf.shape(neg_data_idx)[0], dtype=tf.int32),
+                                   false_fn=lambda: tf.cast(neg_data_idx, dtype=tf.int32))
             # get negative indices
             neg_img_data = tf.gather(neg_img_data, neg_data_idx)
             neg_pose_data = tf.gather(neg_pose_data, neg_data_idx)

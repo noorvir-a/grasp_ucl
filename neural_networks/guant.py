@@ -260,9 +260,12 @@ class GUANt(object):
         for op_name in self.load_layers:
             with tf.variable_scope(op_name, reuse=True):
 
-                data = reader.get_tensor(op_name + '/biases')
-                var = tf.get_variable('biases')
-                self.sess.run(var.assign(data))
+                try:
+                    data = reader.get_tensor(op_name + '/biases')
+                    var = tf.get_variable('biases')
+                    self.sess.run(var.assign(data))
+                except tf.errors.NotFoundError:
+                    logging.warn('Skipping initialising weight: %s' % (op_name + '/biases'))
 
                 data = reader.get_tensor(op_name + '/weights')
                 var = tf.get_variable('weights')

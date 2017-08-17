@@ -201,11 +201,6 @@ class GUANt(object):
 
         """
 
-        #https: // www.tensorflow.org / programmers_guide / variables  # choosing_which_variables_to_save_and_restore
-        #all_vars = tf.all_variables()
-        #var_to_restore = [v for v in all_vars if not v.name.startswith('xxx')]
-        #saver = tf.train.Saver(var_to_restore)
-
         logging.info('Loading weights from pretrained AlexNet')
 
         # Load the weights into memory
@@ -481,8 +476,6 @@ class GUANt(object):
         file_handler = logging.FileHandler(os.path.join(self._log_dir, 'training_log.log'))
         logging.getLogger().addHandler(file_handler)
 
-        # try:
-
         # initialise TensorFlow variables
         self._init_tensorflow()
         # with tf.variable_scope('training_network'):
@@ -659,13 +652,6 @@ class GUANt(object):
 
             coord.request_stop()
             coord.join(threads)
-
-        # except Exception as err:
-        #     logging.error(str(err))
-        #     # close TensorBoard
-        #     self._close_tensorboard()
-        #     # close TensorFlow Session
-        #     self.sess.close()
 
 
     def predict(self, input_batch, pose_label, label_batch, close_sess=False, test=False):

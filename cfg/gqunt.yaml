@@ -2,17 +2,17 @@
 network_name: gqunt
 
 # Directories
-dataset_dir: /home/noorvir/datasets/gqcnn/test/
+dataset_dir: /home/noorvir/datasets/gqcnn/dexnet_large_shuffled/
 cache_dir: /home/noorvir/datasets/gqcnn/cache/
-summary_dir: /home/noorvir/tf_models/GUAN-t/summaries/
-checkpoint_dir: /home/noorvir/tf_models/GUAN-t/checkpoints/
-model_dir: /home/noorvir/tf_models/GUAN-t/pre_trained/         # path to trained GUAN-t model
+summary_dir: /home/noorvir/tf_models/GQUN-t/summaries/
+checkpoint_dir: /home/noorvir/tf_models/GQUN-t/checkpoints/
+model_dir: /home/noorvir/tf_models/GQUN-t/pretrained/        # path to trained GUAN-t model
 
-dataset_name: test
+dataset_name: dexnet_large_shuffled
 
 dataset_config: /home/noorvir/catkin_ws/src/grasp_ucl/cfg/datasets.yaml
-pt_weights_filename: /home/noorvir/tf_models/AlexNet/bvlc_alexnet.npy
-checkpoint_filename: 17-08-16-20:51:17/model.ckpt
+pt_model_filename: mahler_2017_GQ/model.ckpt
+checkpoint_filename: mahler_2017_GQ/model.ckpt
 
 # Data Parameters
 metric_sample_size: 50                   # number of files to use to approximate data metrics (mean, stddev)
@@ -36,11 +36,10 @@ num_val_data_dequeue: 200
 num_val_data_enqueue_threads: 1
 num_val_batch_enqueue_threads: 1
 
-
 debug: 0                                # run in debug mode or not
 
 # Training parameters
-num_epochs: 50
+num_epochs: 10
 batch_size: 150
 optimiser: momentum                         # adam, momentum or rmsprop
 loss: xentropy                          # l2, xentropy, wxentropy, or sparse
@@ -49,18 +48,23 @@ momentum_rate: 0.5
 exponential_decay: 1                  # use learning-rate decay - 0 or 1
 lr_decay_rate: 0.96
 
+# Local response Normalisation Parameters
+normalisation_radius: 2
+normalisation_alpha: 2.0e-05
+normalisation_beta: 0.75
+normalisation_bias: 1.0
+
 pos_train_frac: 0.5                     # fraction of positive training samples (only valid for binary classification)
 weights_init_type: gaussian
 
 val_frequency: 100                     # steps
 log_frequency: 10
-save_frequency: 500
+save_frequency: 6000
 
 data_used_fraction: 1.0                  # fraction of the total training data to use
 train_fraction: 0.7                         # fraction of data to use for training vs validation
 val_fraction: 0.15                         # fraction of data to use for training vs validation
 test_fraction: 0.15                         # fraction of data to use for training vs validation
-
 
 # GUAN-t architecture
 architecture:
@@ -69,24 +73,61 @@ architecture:
   img_channels: 1
   num_classes: 6                        # 2 for binary 6 for quality
   pose_dim: 1
-  load_layers:                       # layers of AlexNet to retrain
-    - conv1
-    - conv2
-    - conv3
-    - conv4
-    - conv5
-    - fc6
+  train_layers:
+    - conv1_1
+    - conv1_2
+    - conv2_1
+    - conv2_2
     - pc1
-    - fc7
-    - fc7p
-    - fc8
-  train_layers:                       # layers of AlexNet to discard
-    - conv1
-    - conv2
-    - conv3
-    - conv4
-    - conv5
-    - fc6
-    - fc7
-    - fc7p
-    - fc8
+    - fc3
+    - fc4
+    - fc5
+  load_layers:
+    - conv1_1
+    - conv1_2
+    - conv2_1
+    - conv2_2
+    - pc1
+    - fc3
+    - fc4
+  layers:
+    conv1_1:
+      filt_dim: 7
+      num_filt: 64
+      pool_size: 1
+      pool_stride: 1
+      norm: 0
+      norm_type: local_response
+    conv1_2:
+      filt_dim: 5
+      num_filt: 64
+      pool_size: 2
+      pool_stride: 2
+      norm: 1
+      norm_type: local_response
+    conv2_1:
+      filt_dim: 3
+      num_filt: 64
+      pool_size: 1
+      pool_stride: 1
+      norm: 0
+      norm_type: local_response
+    conv2_2:
+      filt_dim: 3
+      num_filt: 64
+      pool_size: 1
+      pool_stride: 1
+      norm: 1
+      norm_type: local_response
+    pc1:
+      out_size: 16
+    pc2:
+      out_size: 0
+    fc3:
+      out_size: 1024
+      keep_prob: 0.9
+    fc4:
+      out_size: 1024
+      keep_prob: 0.9
+    fc5:
+      out_size: 6

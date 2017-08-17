@@ -22,7 +22,7 @@ class NeuralNetLayers(object):
 
 
     @staticmethod
-    def convolution(x, filter_dim, num_filters, pool_stride, initialiser, name, padding='SAME'):
+    def convolution(x, filter_dim, num_filters, conv_stride, initialiser, name, padding='SAME'):
         """Create a convolution layer.
 
         Adapted from: https://github.com/ethereon/caffe-tensorflow
@@ -31,7 +31,7 @@ class NeuralNetLayers(object):
         input_channels = int(x.get_shape()[-1])
 
         # Create lambda function for the convolution
-        convolve = lambda i, k: tf.nn.conv2d(i, k, strides=[1, pool_stride, pool_stride, 1], padding=padding)
+        convolve = lambda i, k: tf.nn.conv2d(i, k, strides=[1, conv_stride, conv_stride, 1], padding=padding)
 
         with tf.variable_scope(name) as scope:
             # Create tf variables for the weights and biases of the conv layer
@@ -122,7 +122,8 @@ class NeuralNet(object):
         self.dataset_config = self.config['dataset_config']
         self.summary_dir = self.config['summary_dir']
         self.checkpoint_dir = self.config['checkpoint_dir']
-        self.pt_weights_file = self.config['pt_weights_filename']
+        self.model_dir = self.config['model_dir']
+        self.pt_model_filename = self.config['pt_model_filename']
         self.checkpoint_filename = self.config['checkpoint_filename']
         self.dataset_name = self.config['dataset_name']
 
@@ -207,7 +208,7 @@ class NeuralNet(object):
             num_imgs = 0
             # compute image mean
             for img_file in img_filenames:
-                imgs = np.load(os.path.join(self.dataset_dir, img_file))['arr_0']
+                imgs = np.load(os.path.join(self.pt_model_filedataset_dir, img_file))['arr_0']
                 img_sum += np.sum(imgs)
                 num_imgs += np.shape(imgs)[0]
 
@@ -275,42 +276,37 @@ class NeuralNet(object):
         Load pretrained weights from file.
 
         """
+        model_path = os.path.join(self.model_dir, self.pt_model_filename)
+        logging.info('Loading weights from pre-trained model')
+        logging.info('Model path %s: ' % model_path)
 
-        logging.info('Loading weights from pretrained AlexNet')
+        weights = [var.name.split('/')[0] for var in tf.trainable_variables() if var.name.split('/')[0] in self.load_layers]
+        weights = list(set(weights))
 
-        # Load the weights into memory
-        weights_dict = np.load(self.pt_weights_file, encoding='bytes').item()
+        # checkpoint reader
+        reader = tf.train.NewCheckpointReader(model_path)
 
-        # original weights of first convolution layer
-        org_conv1_wt = weights_dict['conv1'][0]
-        # use only the first channel
-        conv1_wt = np.zeros([11, 11, self.img_channels, 96])
+        for wt_name in weights:
+            with tf.variable_scope(wt_name, reuse=True):
 
-        # TODO: change this to a non-linear formula
-        for channel in range(self.img_channels):
-            conv1_wt[:, :, channel, :] = org_conv1_wt[:, :, channel, :]
-            # conv1_wt[:, :, 0, :] = org_conv1_wt[:, :, 0, :] + org_conv1_wt[:, :, 0, :] + org_conv1_wt[:, :, 0, :]
+                # special treatment for fc4
+                if wt_name != 'fc4':
+                    data = reader.get_tensor(wt_name + 'W')
+                    var = tf.get_variable(wt_name + 'W')
+                    self._network.sess.run(var.assign(data))
 
-        weights_dict['conv1'][0] = np.copy(conv1_wt)
+                else:
+                    data = reader.get_tensor('fc4W_im')
+                    var = tf.get_variable('fc4W_im')
+                    self._network.sess.run(var.assign(data))
 
-        # Loop over all layer names stored in the weights dict
-        for op_name in weights_dict:
-            if op_name not in self.load_layers:
-                continue
+                    data = reader.get_tensor('fc4W_pose')
+                    var = tf.get_variable('fc4W_pose')
+                    self._network.sess.run(var.assign(data))
 
-            with tf.variable_scope(op_name, reuse=True):
-
-                # Assign weights/biases to their corresponding tf variable
-                for data in weights_dict[op_name]:
-                    # Biases
-                    if len(data.shape) == 1:
-                        var = tf.get_variable('biases')
-                        self._network.sess.run(var.assign(data))
-
-                    # Weights
-                    else:
-                        var = tf.get_variable('weights')
-                        self._network.sess.run(var.assign(data))
+                data = reader.get_tensor(wt_name + 'b')
+                var = tf.get_variable(wt_name + 'b')
+                self._network.sess.run(var.assign(data))
 
         logging.info('Done.')
 

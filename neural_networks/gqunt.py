@@ -55,60 +55,64 @@ class GQUNt(object):
         self.layers = GQUNtLayers()
 
         # 1. 1st convolution layer part 1 - conv_1_1
-        self.layers.conv1_1 = self.util.convolution(img_data, filter_dim=7, num_filters=64, pool_stride=1, name='conv1_1',
+        self.layers.conv1_1 = self.util.convolution(img_data, filter_dim=7, num_filters=64, conv_stride=1, name='conv1_1',
                                                     initialiser=initialiser)
 
-        if self.architecture['conv1_1']['norm']:
+        if self.architecture['layers']['conv1_1']['norm']:
             self.layers.conv1_1 = self.util.lrn(self.layers.conv1_1, self.normalization_radius, self.normalization_alpha,
                                                 self.normalization_beta, self.normalization_bias, name='lrn1_1')
 
         # 2. 1st convolution layer part 2 - conv_1_2
-        self.layers.conv1_2 = self.util.convolution(self.layers.conv1_1, filter_dim=5, num_filters=64, pool_stride=1, name='conv1_2',
+        self.layers.conv1_2 = self.util.convolution(self.layers.conv1_1, filter_dim=5, num_filters=64, conv_stride=1, name='conv1_2',
                                                     initialiser=initialiser)
 
-        if self.architecture['conv1_2']['norm']:
+        if self.architecture['layers']['conv1_2']['norm']:
             self.layers.conv1_2 = self.util.lrn(self.layers.conv1_2, self.normalization_radius, self.normalization_alpha,
                                                 self.normalization_beta, self.normalization_bias, name='lrn1_2')
 
         # 3. pooling layer
-        self.layers.pool1_2 = self.util.max_pool(self.layers.conv1_2, 2, 1, name='pool1_2')
+        self.layers.pool1_2 = self.util.max_pool(self.layers.conv1_2, 2, 2, name='pool1_2')
 
         # 4. 2nd convolution layer part 1 - conv_2_1
-        self.layers.conv2_1 = self.util.convolution(self.layers.pool1_2, filter_dim=3, num_filters=64, pool_stride=1, name='conv2_1',
+        self.layers.conv2_1 = self.util.convolution(self.layers.pool1_2, filter_dim=3, num_filters=64, conv_stride=1, name='conv2_1',
                                                     initialiser=initialiser)
 
-        if self.architecture['conv2_1']['norm']:
+        if self.architecture['layers']['conv2_1']['norm']:
             self.layers.conv2_1 = self.util.lrn(self.layers.conv2_1, self.normalization_radius, self.normalization_alpha,
                                                 self.normalization_beta, self.normalization_bias, name='lrn2_1')
 
         # 5. 2nd convolution layer part 2 - conv_2_2
-        self.layers.conv2_2 = self.util.convolution(self.layers.conv2_1, filter_dim=3, num_filters=64, pool_stride=1, name='conv2_2',
+        self.layers.conv2_2 = self.util.convolution(self.layers.conv2_1, filter_dim=3, num_filters=64, conv_stride=1, name='conv2_2',
                                                     initialiser=initialiser)
 
-        if self.architecture['conv2_2']['norm']:
+        if self.architecture['layers']['conv2_2']['norm']:
             self.layers.conv2_2 = self.util.lrn(self.layers.conv2_2, self.normalization_radius, self.normalization_alpha,
                                                 self.normalization_beta, self.normalization_bias, name='lrn2_2')
 
+        self.layers.pool2_2 = self.util.max_pool(self.layers.conv2_2, 2, 1, name='pool1_2')
+
         # self.layers.conv2_2_flat = tf.reshape(self.layers.conv2_2, [-1, ])
         self.layers.conv2_2_flat = tf.contrib.layers.flatten(self.layers.conv2_2)
+        fc3_input_shape = self.sess.run(tf.shape(self.layers.conv2_2_flat)[1])
 
         # 6. 1st fully connected layer for image branch of network - fc3
-        self.layers.fc3 = self.util.fully_connected(self.layers.conv2_2_flat, 0, 1024, initialiser, name='fc3')
-        self.layers.fc3 = self.util.dropout(self.layers.fc3, self.architecture['fc3']['dropout_rate'])
+        self.layers.fc3 = self.util.fully_connected(self.layers.conv2_2_flat, fc3_input_shape, 1024, initialiser, name='fc3')
+        self.layers.fc3 = self.util.dropout(self.layers.fc3, self.architecture['layers']['fc3']['keep_prob'])
 
         # 7. fully connected layer for pose branch - pc1
         self.layers.pc1 = self.util.fully_connected(pose_data, 1, 16, initialiser, name='pc1')
 
         # 8. 2nd fully connected layer combining image and pose branches - fc4
-        img_fc = tf.get_variable('fc4W_im', [1024, 1024], initializer=initialiser)
-        pose_fc = tf.get_variable('fc4W_pose', [16, 1024], initializer=initialiser)
-        fc4_bias = tf.get_variable('fc4b', [1024], initializer=initialiser)
+        with tf.variable_scope('fc4'):
+            img_fc = tf.get_variable('fc4W_im', [1024, 1024], initializer=initialiser)
+            pose_fc = tf.get_variable('fc4W_pose', [16, 1024], initializer=initialiser)
+            fc4_bias = tf.get_variable('fc4b', [1024], initializer=initialiser)
 
         self.layers.fc4 = tf.nn.relu(tf.matmul(self.layers.fc3, img_fc) + tf.matmul(self.layers.pc1, pose_fc) + fc4_bias)
-        self.layers.fc4 = self.util.dropout(self.layers.fc4, self.architecture['fc4']['dropout_rate'])
+        self.layers.fc4 = self.util.dropout(self.layers.fc4, self.architecture['layers']['fc4']['keep_prob'])
 
         # 9. 3rd fully connected layer - fc5
-        self.layers.fc5 = self.util.fully_connected(self.layers.fc4, 1024, self.nn.num_classes, initialiser, name='pc5')
+        self.layers.fc5 = self.util.fully_connected(self.layers.fc4, 1024, self.nn.num_classes, initialiser, name='fc5')
 
         return self.layers.fc5
 
@@ -151,8 +155,8 @@ class GQUNt(object):
         signal.signal(signal.SIGINT, self.nn.signal_handler)
 
         # setup common filename and logging
-        self.nn.model_timestamp = '{:%y-%m-%d-%H:%M:%S}'.format(datetime.now())
-        model_dir_name = self.nn.model_timestamp  # directory for current model
+        self.model_timestamp = '{:%y-%m-%d-%H:%M:%S}'.format(datetime.now())
+        model_dir_name = self.model_timestamp  # directory for current model
 
         self._model_dir = os.path.join(self.nn.checkpoint_dir, model_dir_name)
         self._log_dir = os.path.join(self._model_dir, 'logs')
@@ -251,11 +255,14 @@ class GQUNt(object):
         self._graph.finalize()
         threads = tf.train.start_queue_runners(sess=self.sess, coord=coord)
 
-        logging.info('\nWaiting 60 seconds to load queues')
-        time.sleep(60)
+        logging.info('\nWaiting 20 seconds to load queues')
+        time.sleep(20)
 
         # log info about training
         logging.info('------------------------------------------------')
+        logging.info('Network Name: %s' % self.nn.name)
+        logging.info('Image Type: %s' % '32x32 transformed')
+        logging.info('Label Type: %s' % 'clustered uncertainty')
         logging.info('Number of Classes: %s' % str(self.nn.num_classes))
         logging.info('Pose used: %s' % str(bool(int(self.nn.use_pose))))
         logging.info('Number of Training Data-points: %s' % str(self.nn.loader.num_train))
@@ -300,8 +307,7 @@ class GQUNt(object):
 
                         _, loss, self.nn.train_accuracy, training_summaries = self.sess.run(run_vars)
 
-                        logging.info(
-                            self.nn.get_date_time() + ': epoch = %d, batch = %d, accuracy = %.3f, loss = %.3f, time = %.5f'
+                        logging.info(self.nn.get_date_time() + ': epoch = %d, batch = %d, accuracy = %.3f, loss = %.3f, time = %.5f'
                             % (epoch, batch, self.nn.train_accuracy, loss, time.time() - st))
 
                         # log summaries
@@ -381,3 +387,13 @@ class GQUNt(object):
         return accuracy, error, predicted_labels
 
 
+
+
+if __name__ == '__main__':
+
+    gqunt_config = YamlConfig('/home/noorvir/catkin_ws/src/grasp_ucl/cfg/gqunt.yaml')
+
+    # 1. Train
+    gqunt = GQUNt(gqunt_config)
+    gqunt.optimise(weights_init='pre_trained')
+    # gqunt.optimise(weights_init='checkpoint')

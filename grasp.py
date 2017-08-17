@@ -52,9 +52,9 @@ for trial in xrange(num_test_trials):
 
     print('Starting trial number %d of %d' % (trial, num_test_trials))
     if trial == num_test_trials -1:
-        accuracy, error, predicted_labels = guant.predict(img_batch, pose_batch, label_batch, close_sess=True, test=True)
+        accuracy, error, predicted_labels = guant.predict(img_batch, pose_batch, label_batch, close_sess=True, is_test=True)
     else:
-        accuracy, error, predicted_labels = guant.predict(img_batch, pose_batch, label_batch, test=True)
+        accuracy, error, predicted_labels = guant.predict(img_batch, pose_batch, label_batch, is_test=True)
 
     gt_labels = np.where(label_batch[:, :] == 1)[1]
 

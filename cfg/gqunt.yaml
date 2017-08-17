@@ -1,18 +1,18 @@
 # Network Name
-network_name: guant
+network_name: gqunt
 
 # Directories
-dataset_dir: /home/noorvir/datasets/gqcnn/dexnet_large_ucl/
+dataset_dir: /home/noorvir/datasets/gqcnn/test/
 cache_dir: /home/noorvir/datasets/gqcnn/cache/
 summary_dir: /home/noorvir/tf_models/GUAN-t/summaries/
 checkpoint_dir: /home/noorvir/tf_models/GUAN-t/checkpoints/
 model_dir: /home/noorvir/tf_models/GUAN-t/pre_trained/         # path to trained GUAN-t model
 
-dataset_name: dexnet_large_ucl
+dataset_name: test
 
 dataset_config: /home/noorvir/catkin_ws/src/grasp_ucl/cfg/datasets.yaml
 pt_weights_filename: /home/noorvir/tf_models/AlexNet/bvlc_alexnet.npy
-checkpoint_filename: 17-08-08-22:29:07/model.ckpt
+checkpoint_filename: 17-08-16-20:51:17/model.ckpt
 
 # Data Parameters
 metric_sample_size: 50                   # number of files to use to approximate data metrics (mean, stddev)
@@ -24,13 +24,13 @@ frac_datapoints_from_file: 1.0          # number of data-points to add to data_b
 
 # Queue and Thread Parameters
 # train
-train_data_queue_capacity: 2000
-train_batch_queue_capacity: 10
-num_train_data_dequeue: 500
-num_train_data_enqueue_threads: 7
-num_train_batch_enqueue_threads: 4
+train_data_queue_capacity: 200
+train_batch_queue_capacity: 1
+num_train_data_dequeue: 100
+num_train_data_enqueue_threads: 4
+num_train_batch_enqueue_threads: 2
 # validation
-val_data_queue_capacity: 700
+val_data_queue_capacity: 100
 val_batch_queue_capacity: 2
 num_val_data_dequeue: 200
 num_val_data_enqueue_threads: 1
@@ -64,10 +64,10 @@ test_fraction: 0.15                         # fraction of data to use for traini
 
 # GUAN-t architecture
 architecture:
-  img_width: 227
-  img_height: 227
+  img_width: 32
+  img_height: 32
   img_channels: 1
-  num_classes: 2                        # 2 for binary 6 for quality
+  num_classes: 6                        # 2 for binary 6 for quality
   pose_dim: 1
   load_layers:                       # layers of AlexNet to retrain
     - conv1

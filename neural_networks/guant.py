@@ -668,7 +668,7 @@ class GUANt(object):
         #     self.sess.close()
 
 
-    def predict(self, input_batch, pose_label, label_batch, model_path=None):
+    def predict(self, input_batch, pose_label, label_batch, close_sess=False, test=False):
         """ Predict """
 
         with self._graph.as_default():
@@ -677,7 +677,6 @@ class GUANt(object):
             if not self._tensorflow_initialised:
                 self._init_tensorflow()
 
-            close_sess = False
             if self._sess is None:
                 close_sess = True
                 self._open_session()
@@ -685,9 +684,10 @@ class GUANt(object):
             # initialise prediction network
             if not self._pred_network_initialised:
                 self._get_predition_network(reuse=False)
+                self._pred_network_initialised = True
 
             # load model
-            if model_path is not None:
+            if test:
                 self._load_weights_from_checkpoint()
                 # saver = tf.train.Saver()
                 # saver.restore(self.sess, model_path)

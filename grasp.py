@@ -49,7 +49,12 @@ num_test_trials = 2
 for trial in xrange(num_test_trials):
 
     img_batch, pose_batch, label_batch = test_data_loader.get_test_batch()
-    accuracy, error, predicted_labels = guant.predict(img_batch, pose_batch, label_batch, '/home/noorvir/tf_models/GUAN-t/checkpoints/17-08-16-20:51:17/model.ckpt')
+
+    print('Starting trial number %d of %d' % (trial, num_test_trials))
+    if trial == num_test_trials -1:
+        accuracy, error, predicted_labels = guant.predict(img_batch, pose_batch, label_batch, close_sess=True, test=True)
+    else:
+        accuracy, error, predicted_labels = guant.predict(img_batch, pose_batch, label_batch, test=True)
 
     gt_labels = np.where(label_batch[:, :] == 1)[1]
 
@@ -57,6 +62,8 @@ for trial in xrange(num_test_trials):
     error_list.append(error)
     gt_labels_list.append(list(gt_labels))
     predicted_labels_list.append(list(predicted_labels))
+
+print('Finished all trials')
 
 label_batch_pd = pandas.Series(gt_labels_list, name='Actual')
 predicted_labels_pd = pandas.Series(predicted_labels_list, name='Predicted')

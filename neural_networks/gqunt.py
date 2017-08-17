@@ -252,7 +252,7 @@ class GQUNt(object):
         threads = tf.train.start_queue_runners(sess=self.sess, coord=coord)
 
         logging.info('\nWaiting 60 seconds to load queues')
-        time.sleep(0)
+        time.sleep(60)
 
         # log info about training
         logging.info('------------------------------------------------')

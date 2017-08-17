@@ -44,7 +44,7 @@ gt_labels_list = []
 predicted_labels_list = []
 
 test_data_loader = DataLoader(guant, dataset_config)
-num_test_trials = 1
+num_test_trials = 2
 
 for trial in xrange(num_test_trials):
 
@@ -55,8 +55,8 @@ for trial in xrange(num_test_trials):
 
     accuracy_list.append(accuracy)
     error_list.append(error)
-    gt_labels_list.append(gt_labels)
-    predicted_labels_list.append(predicted_labels)
+    gt_labels_list.append(list(gt_labels))
+    predicted_labels_list.append(list(predicted_labels))
 
 label_batch_pd = pandas.Series(gt_labels_list, name='Actual')
 predicted_labels_pd = pandas.Series(predicted_labels_list, name='Predicted')
@@ -64,5 +64,6 @@ predicted_labels_pd = pandas.Series(predicted_labels_list, name='Predicted')
 # confusion_mat = pandas.crosstab(label_batch_pd, predicted_labels_pd, rownames=['Actual'], colnames=['Predicted'],  margins=True)
 confusion_mat = confusion_matrix(predicted_labels, gt_labels)
 
+print('accuracy %.4f' % np.mean(accuracy))
 print(confusion_mat)
 

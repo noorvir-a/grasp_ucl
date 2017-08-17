@@ -12,38 +12,57 @@ arXiv preprint arXiv:1703.09312 (2017).
 
 from gqcnn import GQCNN, SGDOptimizer
 from autolab_core import YamlConfig
+from grasp_ucl.neural_networks.guant import GUANt
+from grasp_ucl.utils.pre_process import DataLoader
+from sklearn.metrics import confusion_matrix
+import numpy as np
+import pandas
 import logging
 import time
 
-DIR_PATH = r'~/catkin_ws/src/'
 
 
-def get_elapsed_time(time_in_seconds):
-    """ Helper function to get elapsed time """
-    if time_in_seconds < 60:
-        return '%.1f seconds' % time_in_seconds
-    elif time_in_seconds < 3600:
-        return '%.1f minutes' % (time_in_seconds / 60)
-    else:
-        return '%.1f hours' % (time_in_seconds / 3600)
+# get architecture to use
+# load model
+# load raw depth image and sample grasps using policy.py
+#
 
 
-if __name__ == 'main':
+####################
+# GUANt Test
+####################
 
-    # initialise logger
-    logging.getLogger().setLevel(logging.INFO)
+guant_config = YamlConfig('/home/noorvir/catkin_ws/src/grasp_ucl/cfg/guant.yaml')
+dataset_config = YamlConfig(guant_config['dataset_config'])['guant']
 
-    # load config files
-    train_config = YamlConfig(DIR_PATH + 'gqcnn/cfg/tools/training.yaml')
-    gqcnn_config = train_config['gqcnn_config']
+guant = GUANt(guant_config)
 
-    start_time = time.time()
-    gqcnn = GQCNN(gqcnn_config)
-    sgd_optimser = SGDOptimizer(gqcnn, train_config)
+# store metrics over multiple trails in lists
+accuracy_list = []
+error_list = []
+gt_labels_list = []
+predicted_labels_list = []
 
-    with gqcnn.get_tf_graph().as_default():
-        sgd_optimser.optimize()
+test_data_loader = DataLoader(guant, dataset_config)
+num_test_trials = 1
 
-    logging.info('Training Time: ' + str(get_elapsed_time(time.time() - start_time)))
+for trial in xrange(num_test_trials):
 
+    img_batch, pose_batch, label_batch = test_data_loader.get_test_batch()
+    accuracy, error, predicted_labels = guant.predict(img_batch, pose_batch, label_batch, '/home/noorvir/tf_models/GUAN-t/checkpoints/17-08-16-20:51:17/model.ckpt')
+
+    gt_labels = np.where(label_batch[:, :] == 1)[1]
+
+    accuracy_list.append(accuracy)
+    error_list.append(error)
+    gt_labels_list.append(gt_labels)
+    predicted_labels_list.append(predicted_labels)
+
+label_batch_pd = pandas.Series(gt_labels_list, name='Actual')
+predicted_labels_pd = pandas.Series(predicted_labels_list, name='Predicted')
+
+# confusion_mat = pandas.crosstab(label_batch_pd, predicted_labels_pd, rownames=['Actual'], colnames=['Predicted'],  margins=True)
+confusion_mat = confusion_matrix(predicted_labels, gt_labels)
+
+print(confusion_mat)
 

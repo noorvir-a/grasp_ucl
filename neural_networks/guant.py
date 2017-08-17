@@ -291,6 +291,8 @@ class GUANt(object):
         for gradient, var in gradients:
             tf.summary.histogram(var.name[:-2] + '/gradient', gradient, collections=['training_summary'])
 
+        # learning rate
+        tf.summary.scalar('learning_rate', self.learning_rate, collections=['training_summary'])
         # accuracy
         tf.summary.scalar('train_accuracy', self.accuracy_op, collections=['training_summary'])
         tf.summary.scalar('val_accuracy', self._pred_accuracy_op, collections=['validation_summary'])
@@ -419,7 +421,7 @@ class GUANt(object):
         os.system('tensorboard --logdir=' + self.summary_dir + " &>/dev/null &")
 
 
-    def _get_predition_network(self):
+    def _get_predition_network(self, reuse=True):
         """ Create network to use for prediction. Uses the same graph but a different method of inputing data"""
 
         with self._graph.as_default():
@@ -432,7 +434,7 @@ class GUANt(object):
 
             # with tf.variable_scope('training_network'):
             with tf.name_scope('prediction_network'):
-                with tf.variable_scope(tf.get_variable_scope(), reuse=True):
+                with tf.variable_scope(tf.get_variable_scope(), reuse=reuse):
                     self._pred_network_output = self.create_network(self._pred_input_node, self._pred_pose_node)
 
             # metric operations
@@ -682,12 +684,13 @@ class GUANt(object):
 
             # initialise prediction network
             if not self._pred_network_initialised:
-                self._get_predition_network()
+                self._get_predition_network(reuse=False)
 
             # load model
             if model_path is not None:
-                saver = tf.train.Saver()
-                saver.restore(self.sess, model_path)
+                self._load_weights_from_checkpoint()
+                # saver = tf.train.Saver()
+                # saver.restore(self.sess, model_path)
 
             # variables to run
             run_vars = [self._pred_accuracy_op, self._pred_error_rate_op, self._pred_network_output, self._pred_predicted_labels]
@@ -729,31 +732,4 @@ if __name__ == '__main__':
     guant = GUANt(guant_config)
     # guant.optimise(weights_init='pre_trained')
     guant.optimise(weights_init='checkpoint')
-
-    ####################
-    # 2. Test
-    ####################
-    # store metrics over multiple trails in lists
-    # accuracy_list = []
-    # error_list = []
-    # gt_labels_list = []
-    # predicted_labels_list = []
-    #
-    # test_data_loader = DataLoader(guant, guant_config['dataset_config'])
-    # num_test_trials = 20
-    #
-    # for trial in xrange(num_test_trials):
-    #
-    #     test_input_batch, test_label_batch = test_data_loader.get_next_batch()
-    #     accuracy, error, predicted_labels = guant.predict(test_input_batch, test_label_batch, '/home/noorvir/tf_models/GUAN-t/pre_trained/')
-    #
-    #     accuracy_list.append(accuracy)
-    #     error_list.append(error)
-    #     gt_labels_list.append(test_label_batch)
-    #     predicted_labels_list.append(predicted_labels)
-    #
-    # label_batch_pd = pandas.Series(gt_labels_list, name='Actual')
-    # predicted_labels_pd = pandas.Series(predicted_labels_list, name='Predicted')
-    #
-    # confusion_mat = pandas.crosstab(label_batch_pd, predicted_labels_pd, rownames=['Actual'], colnames=['Predicted'],  margins=True)
 

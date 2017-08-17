@@ -262,6 +262,90 @@ class DataLoader(object):
         return [imgs.astype(np.float32), poses.astype(np.float32), labels.astype(np.float32)]
 
 
+    def get_test_batch(self):
+        """ Load data from numpy files"""
+
+        img_batch = np.zeros((self._network.batch_size, self._network.img_width, self._network.img_height, self._network.img_channels))
+        pose_batch = np.zeros((self._network.batch_size, self._network.pose_dim))
+        label_batch = np.zeros((self._network.batch_size, self._network.num_classes))
+
+        total_batch_size = 0
+        while True:
+            # get filename to load
+            file_id = np.random.choice(np.shape(self.test_img_filenames)[0], size=1)
+            img_filename = self.test_img_filenames[file_id]
+            pose_filename = self.test_pose_filenames[file_id]
+            label_filename = self.test_label_filenames[file_id]
+
+            # load data files
+            imgs = np.load(os.path.join(self._network.dataset_dir, img_filename))['arr_0']
+            poses = np.load(os.path.join(self._network.dataset_dir, pose_filename))['arr_0']
+            labels = np.load(os.path.join(self._network.dataset_dir, label_filename))['arr_0']
+
+            # copy 1st channel into 2nd and 3rd
+            imgs = np.repeat(imgs, self._network.img_channels, axis=self._network.img_channels)
+            poses = poses[:, 2:3]
+
+            if self._network.num_classes == 2:
+                pos_data_idx = np.where(labels[:, 1] == 1)
+                neg_data_idx = np.where(labels[:, 1] == 0)
+                # get number of negative indices to ensure desired pos-neg split
+                num_neg_multipler = (1.0 - self._network.pos_train_frac) / self._network.pos_train_frac
+            else:
+                pos_data_idx = np.where(labels[:, 0] != 1)
+                neg_data_idx = np.where(labels[:, 0] == 1)
+                # ensure equal number of datapoints from each class
+                num_neg_multipler = 1 / float(self._network.num_classes)
+
+            # get positive data-points
+            pos_img_data = imgs[pos_data_idx]
+            pos_pose_data = poses[pos_data_idx]
+            pos_label_data = labels[pos_data_idx]
+
+            neg_img_data = imgs[neg_data_idx]
+            neg_pose_data = poses[neg_data_idx]
+            neg_label_data = labels[neg_data_idx]
+
+            num_neg = int(num_neg_multipler * np.shape(pos_img_data)[0])
+
+            # get indices of negative data-points
+            neg_data_idx = np.random.choice(np.shape(neg_img_data)[0], num_neg)
+
+            neg_img_data = neg_img_data[neg_data_idx]
+            neg_pose_data = neg_pose_data[neg_data_idx]
+            neg_label_data = neg_label_data[neg_data_idx]
+
+            imgs = np.concatenate([pos_img_data, neg_img_data], axis=0)
+            poses = np.concatenate([pos_pose_data, neg_pose_data], axis=0)
+            labels = np.concatenate([pos_label_data, neg_label_data], axis=0)
+
+            num_data_points = np.shape(imgs)[0]
+
+            if num_data_points > (self._network.batch_size - total_batch_size):
+                idx = np.random.choice(range(num_data_points), (self._network.batch_size - total_batch_size))
+                imgs = imgs[idx]
+                poses = poses[idx]
+                labels = labels[idx]
+
+            img_batch[total_batch_size: total_batch_size+num_data_points, :, :, :] = imgs
+            pose_batch[total_batch_size: total_batch_size+num_data_points, :] = poses
+            label_batch[total_batch_size: total_batch_size+num_data_points, :] = labels
+
+            total_batch_size += num_data_points
+            # shuffle data
+            if total_batch_size >= self._network.batch_size:
+                break
+
+        data_idx = range(self._network.batch_size)
+        np.random.shuffle(data_idx)
+
+        img_batch = img_batch[data_idx]
+        pose_batch = pose_batch[data_idx]
+        label_batch = label_batch[data_idx]
+
+        return img_batch, pose_batch, label_batch
+
+
     ###### DEBUG CODE ######
 
     def debug_load_and_enqueue(self):

@@ -265,8 +265,13 @@ class NeuralNet(object):
                                                                                                var_list=var_list)
         elif self.config['optimiser'] == 'adam':
             return tf.train.AdamOptimizer(self.learning_rate).minimize(self._network.loss, global_step=batch, var_list=var_list)
+
         elif self.config['optimiser'] == 'rmsprop':
             return tf.train.RMSPropOptimizer(self.learning_rate).minimize(self._network.loss, global_step=batch, var_list=var_list)
+
+        elif self.config['optimiser'] == 'sgd':
+            return tf.train.GradientDescentOptimizer(self.learning_rate).minimize(self._network.loss, global_step=batch, var_list=var_list)
+
         else:
             raise ValueError('Optimiser %s not supported' % (self.config['optimiser']))
 

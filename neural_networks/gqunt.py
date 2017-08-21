@@ -194,7 +194,7 @@ class GQUNt(object):
         self.nn.lr_decay_step = 100000
         batch_num = tf.Variable(0)
         # setup learning rate decay
-        if self.nn.exponential_decay:
+        if self.nn.exponential_decay and self.nn.config['optimiser'] == 'momentum':
             self.nn.learning_rate = tf.train.exponential_decay(self.nn.learning_rate, tf.multiply(batch_num, self.nn.batch_size),
                                                                self.nn.lr_decay_step, self.nn.lr_decay_rate,
                                                                name='lr_exponential_decay')

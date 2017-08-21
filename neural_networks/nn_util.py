@@ -208,7 +208,7 @@ class NeuralNet(object):
             num_imgs = 0
             # compute image mean
             for img_file in img_filenames:
-                imgs = np.load(os.path.join(self.pt_model_filedataset_dir, img_file))['arr_0']
+                imgs = np.load(os.path.join(self.dataset_dir, img_file))['arr_0']
                 img_sum += np.sum(imgs)
                 num_imgs += np.shape(imgs)[0]
 

@@ -109,6 +109,10 @@ class DataLoader(object):
         self.test_label_filenames = self.label_filenames[val_id_end: test_id_end]
 
 
+    def _distort(self):
+        pass
+
+
     def get_train_data(self):
         """ Set-up operations to create batches"""
 

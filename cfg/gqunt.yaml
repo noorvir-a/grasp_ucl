@@ -78,6 +78,8 @@ architecture:
     - conv1_2
     - conv2_1
     - conv2_2
+    - conv3_1
+    - conv3_2
     - pc1
     - fc3
     - fc4
@@ -119,6 +121,22 @@ architecture:
       pool_stride: 1
       norm: 1
       norm_type: local_response
+    conv3_1:
+      filt_dim: 3
+      num_filt: 64
+      pool_size: 1
+      pool_stride: 1
+      norm: 0
+      norm_type: local_response
+      use: 1
+    conv3_2:
+      filt_dim: 3
+      num_filt: 64
+      pool_size: 1
+      pool_stride: 1
+      norm: 1
+      norm_type: local_response
+      use: 1
     pc1:
       out_size: 16
     pc2:

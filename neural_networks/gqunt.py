@@ -41,6 +41,8 @@ class GQUNt(object):
         self._queues_initialised = False
         self._pred_network_initialised = False
 
+    def _load_architecture(self):
+        pass
 
     def _create_network(self, img_data, pose_data):
         """ Create GUAN-t on top of AlexNet"""
@@ -94,9 +96,41 @@ class GQUNt(object):
         # self.layers.conv2_2_flat = tf.reshape(self.layers.conv2_2, [-1, ])
         self.layers.conv2_2_flat = tf.contrib.layers.flatten(self.layers.conv2_2)
         fc3_input_shape = self.sess.run(tf.shape(self.layers.conv2_2_flat)[1])
+        fc3_input = self.layers.conv2_2_flat
+
+        if self.architecture['layers']['conv3_1']['use']:
+            self.layers.conv3_1 = self.util.convolution(self.layers.pool2_2, filter_dim=3, num_filters=64, conv_stride=1,
+                                                        name='conv3_1',
+                                                        initialiser=initialiser)
+
+            if self.architecture['layers']['conv3_1']['norm']:
+                self.layers.conv3_1 = self.util.lrn(self.layers.conv3_1, self.normalization_radius, self.normalization_alpha,
+                                                    self.normalization_beta, self.normalization_bias, name='lrn3_1')
+
+            self.layers.pool3_1 = self.util.max_pool(self.layers.conv3_1, 2, 1, name='pool3_1')
+
+            self.layers.conv3_1_flat = tf.contrib.layers.flatten(self.layers.pool3_1)
+            fc3_input_shape = self.sess.run(tf.shape(self.layers.conv3_1_flat)[1])
+            fc3_input = self.layers.conv3_1_flat
+
+        if self.architecture['layers']['conv3_2']['use']:
+            self.layers.conv3_2 = self.util.convolution(self.layers.pool3_1, filter_dim=3, num_filters=64, conv_stride=1,
+                                                        name='conv3_2',
+                                                        initialiser=initialiser)
+
+            if self.architecture['layers']['conv3_2']['norm']:
+                self.layers.conv3_2 = self.util.lrn(self.layers.conv3_2, self.normalization_radius, self.normalization_alpha,
+                                                    self.normalization_beta, self.normalization_bias, name='lrn3_2')
+
+            self.layers.pool3_2 = self.util.max_pool(self.layers.conv3_2, 2, 1, name='pool3_2')
+
+            self.layers.conv3_2_flat = tf.contrib.layers.flatten(self.layers.pool3_2)
+            fc3_input_shape = self.sess.run(tf.shape(self.layers.conv3_2_flat)[1])
+            fc3_input = self.layers.conv3_2_flat
+
 
         # 6. 1st fully connected layer for image branch of network - fc3
-        self.layers.fc3 = self.util.fully_connected(self.layers.conv2_2_flat, fc3_input_shape, 1024, initialiser, name='fc3')
+        self.layers.fc3 = self.util.fully_connected(fc3_input, fc3_input_shape, 1024, initialiser, name='fc3')
         self.layers.fc3 = self.util.dropout(self.layers.fc3, self.architecture['layers']['fc3']['keep_prob'])
 
         # 7. fully connected layer for pose branch - pc1

@@ -75,11 +75,35 @@ if __name__ == '__main__':
     guant = GUANt(guant_config)
 
     # GQUNt Test
-    gqunt_config = YamlConfig('/home/noorvir/catkin_ws/src/grasp_ucl/cfg/gqunt.yaml')
-    gqunt_dataset_config = YamlConfig(gqunt_config['dataset_config'])['gqunt']
-    guant = GUANt(gqunt_config)
+    # gqunt_config = YamlConfig('/home/noorvir/catkin_ws/src/grasp_ucl/cfg/gqunt.yaml')
+    # gqunt_dataset_config = YamlConfig(gqunt_config['dataset_config'])['gqunt']
+    # guant = GUANt(gqunt_config)
+    #
+    #
+    # test_network(guant_dataset_config)
+    # test_network(gqunt_dataset_config)
+
+    guant_sh_config = YamlConfig('/home/noorvir/catkin_ws/src/grasp_ucl/cfg/guant_sh.yaml')
+    guant_sh = GUANtSH(guant_sh_config)
+
+    config_filename = '/home/noorvir/catkin_ws/src/grasp_ucl/cfg/grasp.yaml'
+    test_grasping(guant_sh, config_filename)
 
 
-    test_network(guant_dataset_config)
-    test_network(gqunt_dataset_config)
+
+
+
+
+
+# get test datapoints --- raw
+# sample grasps with policy
+# store and apply transformations
+# run images through network
+# plot each of the grasp and its quality on the original image
+
+
+
+
+
+
 

@@ -275,7 +275,7 @@ class GUANt(object):
         with self._graph.as_default():
 
             if self.sess is None:
-                self.nn.open_session()
+                self.sess = self.nn.open_session()
 
             # initialise prediction network
             if not self._pred_network_initialised:
@@ -306,7 +306,7 @@ class GUANt(object):
 
 if __name__ == '__main__':
 
-    guant_config = YamlConfig('/home/noorvir/catkin_ws/src/grasp_ucl/cfg/guant.yaml')
+    guant_config = YamlConfig('/home/noorvir/catkin_ws/src/grasp_ucl/cfg/guant_sh.yaml')
 
 
     ####################

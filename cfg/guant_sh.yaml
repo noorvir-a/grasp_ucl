@@ -1,0 +1,95 @@
+# Network Name
+network_name: guant
+
+# Directories
+dataset_dir: /home/noorvir/datasets/gqcnn/test/
+cache_dir: /home/noorvir/datasets/gqcnn/cache/
+summary_dir: /home/noorvir/tf_models/GUAN-t/summaries/
+#checkpoint_dir: /home/noorvir/tf_models/GUAN-t/checkpoints/
+#model_dir: /home/noorvir/tf_models/GUAN-t/pre_trained/         # path to trained GUAN-t model
+
+checkpoint_dir: /media/noorvir/HeartDrive/ucl_models_summaries/models/
+model_dir: /media/noorvir/HeartDrive/ucl_models_summaries/models/       # for testing
+
+dataset_name: test
+
+dataset_config: /home/noorvir/catkin_ws/src/grasp_ucl/cfg/datasets.yaml
+pt_model_filename: /home/noorvir/tf_models/AlexNet/bvlc_alexnet.npy
+checkpoint_filename: 17-08-16-20-51-17/model.ckpt
+
+# Data Parameters
+metric_sample_size: 50                   # number of files to use to approximate data metrics (mean, stddev)
+data_metics_filename: dexnet_mini_227
+img_min_val: 0
+img_max_val: 255
+datapoints_per_file: 1000
+frac_datapoints_from_file: 1.0          # number of data-points to add to data_buffer from current file
+
+# Queue and Thread Parameters
+# train
+train_data_queue_capacity: 200
+train_batch_queue_capacity: 1
+num_train_data_dequeue: 100
+num_train_data_enqueue_threads: 4
+num_train_batch_enqueue_threads: 2
+# validation
+val_data_queue_capacity: 100
+val_batch_queue_capacity: 2
+num_val_data_dequeue: 200
+num_val_data_enqueue_threads: 1
+num_val_batch_enqueue_threads: 1
+
+
+debug: 0                                # run in debug mode or not
+
+# Training parameters
+num_epochs: 50
+batch_size: 150
+optimiser: momentum                         # adam, momentum or rmsprop
+loss: xentropy                          # l2, xentropy, wxentropy, or sparse
+learning_rate: 0.001                  # TODO
+momentum_rate: 0.5
+exponential_decay: 1                  # use learning-rate decay - 0 or 1
+lr_decay_rate: 0.96
+
+pos_train_frac: 0.5                     # fraction of positive training samples (only valid for binary classification)
+weights_init_type: gaussian
+
+val_frequency: 100                     # steps
+log_frequency: 10
+save_frequency: 500
+
+data_used_fraction: 1.0                  # fraction of the total training data to use
+train_fraction: 0.7                         # fraction of data to use for training vs validation
+val_fraction: 0.15                         # fraction of data to use for training vs validation
+test_fraction: 0.15                         # fraction of data to use for training vs validation
+
+
+# GUAN-t architecture
+architecture:
+  img_width: 227
+  img_height: 227
+  img_channels: 1
+  num_classes: 6                        # 2 for binary 6 for quality
+  pose_dim: 1
+  load_layers:                       # layers of AlexNet to retrain
+    - conv1
+    - conv2
+    - conv3
+    - conv4
+    - conv5
+    - fc6
+    - pc1
+    - fc7
+    - fc7p
+    - fc8
+  train_layers:                       # layers of AlexNet to discard
+    - conv1
+    - conv2
+    - conv3
+    - conv4
+    - conv5
+    - fc6
+    - fc7
+    - fc7p
+    - fc8

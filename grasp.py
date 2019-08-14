@@ -12,38 +12,98 @@ arXiv preprint arXiv:1703.09312 (2017).
 
 from gqcnn import GQCNN, SGDOptimizer
 from autolab_core import YamlConfig
+from grasp_ucl.neural_networks.guant import GUANt
+from grasp_ucl.utils.pre_process import DataLoader
+from sklearn.metrics import confusion_matrix
+import numpy as np
+import pandas
 import logging
 import time
 
-DIR_PATH = r'~/catkin_ws/src/'
 
 
-def get_elapsed_time(time_in_seconds):
-    """ Helper function to get elapsed time """
-    if time_in_seconds < 60:
-        return '%.1f seconds' % time_in_seconds
-    elif time_in_seconds < 3600:
-        return '%.1f minutes' % (time_in_seconds / 60)
-    else:
-        return '%.1f hours' % (time_in_seconds / 3600)
+# get architecture to use
+# load model
+# load raw depth image and sample grasps using policy.py
+#
+
+def test_network(dataset_config):
+
+    # store metrics over multiple trails in lists
+    accuracy_list = []
+    error_list = []
+    gt_labels_list = []
+    predicted_labels_list = []
+
+    test_data_loader = DataLoader(guant, dataset_config)
+    num_test_trials = 2
+
+    for trial in xrange(num_test_trials):
+
+        img_batch, pose_batch, label_batch = test_data_loader.get_test_batch()
+
+        print('Starting trial number %d of %d' % (trial, num_test_trials))
+        if trial == num_test_trials - 1:
+            accuracy, error, predicted_labels = guant.predict(img_batch, pose_batch, label_batch, close_sess=True, is_test=True)
+        else:
+            accuracy, error, predicted_labels = guant.predict(img_batch, pose_batch, label_batch, is_test=True)
+
+        gt_labels = np.where(label_batch[:, :] == 1)[1]
+
+        accuracy_list.append(accuracy)
+        error_list.append(error)
+        gt_labels_list.append(list(gt_labels))
+        predicted_labels_list.append(list(predicted_labels))
+
+    print('Finished all trials')
+
+    confusion_mat = confusion_matrix(predicted_labels, gt_labels)
+    print('accuracy %.4f' % np.mean(accuracy))
+    print(confusion_mat)
 
 
-if __name__ == 'main':
+# label_batch_pd = pandas.Series(gt_labels_list, name='Actual')
+# predicted_labels_pd = pandas.Series(predicted_labels_list, name='Predicted')
 
-    # initialise logger
-    logging.getLogger().setLevel(logging.INFO)
+# confusion_mat = pandas.crosstab(label_batch_pd, predicted_labels_pd, rownames=['Actual'], colnames=['Predicted'],  margins=True)
 
-    # load config files
-    train_config = YamlConfig(DIR_PATH + 'gqcnn/cfg/tools/training.yaml')
-    gqcnn_config = train_config['gqcnn_config']
+if __name__ == '__main__':
 
-    start_time = time.time()
-    gqcnn = GQCNN(gqcnn_config)
-    sgd_optimser = SGDOptimizer(gqcnn, train_config)
+    # GUANt Test
+    guant_config = YamlConfig('/home/noorvir/catkin_ws/src/grasp_ucl/cfg/guant.yaml')
+    guant_dataset_config = YamlConfig(guant_config['dataset_config'])['guant']
+    guant = GUANt(guant_config)
 
-    with gqcnn.get_tf_graph().as_default():
-        sgd_optimser.optimize()
+    # GQUNt Test
+    # gqunt_config = YamlConfig('/home/noorvir/catkin_ws/src/grasp_ucl/cfg/gqunt.yaml')
+    # gqunt_dataset_config = YamlConfig(gqunt_config['dataset_config'])['gqunt']
+    # guant = GUANt(gqunt_config)
+    #
+    #
+    # test_network(guant_dataset_config)
+    # test_network(gqunt_dataset_config)
 
-    logging.info('Training Time: ' + str(get_elapsed_time(time.time() - start_time)))
+    guant_sh_config = YamlConfig('/home/noorvir/catkin_ws/src/grasp_ucl/cfg/guant_sh.yaml')
+    guant_sh = GUANtSH(guant_sh_config)
+
+    config_filename = '/home/noorvir/catkin_ws/src/grasp_ucl/cfg/grasp.yaml'
+    test_grasping(guant_sh, config_filename)
+
+
+
+
+
+
+
+# get test datapoints --- raw
+# sample grasps with policy
+# store and apply transformations
+# run images through network
+# plot each of the grasp and its quality on the original image
+
+
+
+
+
 
 

@@ -2,6 +2,11 @@
 __pycache__/
 *.py[cod]
 *$py.class
+*.dexnet
+
+# Data files
+*.npz
+*.npy
 
 # C extensions
 *.so

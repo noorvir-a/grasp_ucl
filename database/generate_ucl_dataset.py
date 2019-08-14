@@ -30,14 +30,22 @@ from dexnet.grasping import GraspCollisionChecker, RobotGripper
 import dexnet.database.database as db
 from gqcnn import Visualizer as vis2d
 from gqcnn import Grasp2D
+from grasp_ucl.utils.visualise import UCLVisualiser as vis
+from grasp_ucl.database.transformations import ImageTransform
+
+from jenks import jenks
+from sklearn.cluster import KMeans
 from natsort import natsorted, ns
-from visualise import UCLVisualiser as vis
 import numpy as np
 import cPickle as pkl
-import os
-import time
+import logging
 import warnings
 import operator
+import time
+import os
+
+# Display logging info
+logging.getLogger().setLevel(logging.INFO)
 
 
 class UCLDatabaseGQCNN(object):
@@ -52,12 +60,15 @@ class UCLDatabaseGQCNN(object):
         self.metric_list = []
         self.database_dir = config['database_dir']
         self.dataset_dir = config['dataset_dir']
+        self.shuffled_dataset_output_dir = config['shuffled_dataset_output_dir']
         self.dataset_output_dir = config['dataset_output_dir']
         self.dataset_cache_dir = config['dataset_cache_dir']
         self.grasp_metric = config['grasp_metric']
         self.metric_stats_filename = config['metric_stats_filename']
         self.labels = config['labels']
         self.bin_step = config['bin_step']
+        self.label_threshold = config['label_threshold']
+        self.num_points_per_file = config['num_points_per_file']
 
 
     def get_metric_stats(self):
@@ -88,7 +99,214 @@ class UCLDatabaseGQCNN(object):
                                                                                  (time.time() - st_time)))
 
 
-    def create_labels(self):
+    def shuffle_pre_existing_data(self):
+        """ Shuffles data in numpy files and saves them to new files"""
+
+        # depth image filenames
+        img_filenames = self.load_filenames(self.dataset_dir, 'depth_ims_tf_table', sort=True)
+        # robust ferrai_canny label filenames
+        label_filenames = self.load_filenames(self.dataset_dir, 'robust_ferrari_canny', sort=True)
+        # pose filenames
+        pose_filenames = self.load_filenames(self.dataset_dir, 'hand_poses', sort=True)
+
+        label_data = np.empty([0])
+        pose_data = np.empty([0, 4])
+
+        print('Loading labels ...')
+        for i, filename in enumerate(label_filenames):
+            file_data = np.load(os.path.join(self.dataset_dir, filename))['arr_0']
+            label_data = np.concatenate((label_data, file_data))
+
+            if i % 100 == 0:
+                print('Loading data from file number %d out of %d' % (i + 1, len(label_filenames)))
+
+        # important not to use img_data for this
+        num_data = np.shape(label_data)[0]
+        
+        print('Loading poses ...')
+        for i, filename in enumerate(pose_filenames):
+            file_data = np.load(os.path.join(self.dataset_dir, filename))['arr_0']
+            pose_data = np.concatenate((pose_data, file_data), axis=0)
+
+            if i % 100 == 0:
+                print('Loading data from file number %d out of %d' % (i + 1, len(pose_filenames)))
+
+        print('Loading images ...')
+        img_data = np.zeros([num_data, 32, 32, 1])
+        start_index = 0
+        end_index = self.num_points_per_file
+        for i, filename in enumerate(img_filenames):
+            file_data = np.load(os.path.join(self.dataset_dir, filename))['arr_0']
+
+            if end_index <= (num_data - 1):
+                img_data[start_index:end_index, :, :, :] = file_data
+            else:
+                img_data[start_index:num_data, :, :, :] = file_data
+
+            start_index = end_index
+            end_index = end_index + self.num_points_per_file
+
+            if i % 100 == 0:
+                print('Loading data from file number %d out of %d' % (i + 1, len(img_filenames)))
+
+        idx = range(num_data)
+        np.random.shuffle(idx)
+
+        # save to files
+        start_index = 0
+        end_index = self.num_points_per_file
+        for i, img_filename in enumerate(img_filenames):
+
+            if end_index <= (num_data - 1):
+                curr_idx = idx[start_index:end_index]
+                start_index = end_index
+                end_index = end_index + self.num_points_per_file
+
+            else:
+                curr_idx = idx[start_index:]
+
+            # get new data
+            imgs = img_data[curr_idx]
+            labels = label_data[curr_idx]
+            poses = pose_data[curr_idx]
+
+            # get new filenames
+            label_filename = label_filenames[i]
+            pose_filename = pose_filenames[i]
+
+            if i % 10 == 0:
+                print('Saving file %d of %d' % (i+1, np.shape(img_filenames)[0]))
+            np.savez_compressed(os.path.join(self.shuffled_dataset_output_dir, img_filename), imgs)
+            np.savez_compressed(os.path.join(self.shuffled_dataset_output_dir, label_filename), labels)
+            np.savez_compressed(os.path.join(self.shuffled_dataset_output_dir, pose_filename), poses)
+
+        # save shuffling key
+        np.savez_compressed(os.path.join(self.shuffled_dataset_output_dir, 'shuffle_key'), idx)
+        print('done!')
+
+
+    def create_images(self, input_filename_template, output_filename_template):
+        """ Modify existing images to the desired format"""
+
+        # load images
+        img_filenames = self.load_filenames(self.dataset_dir, input_filename_template)
+
+        num_files = len(img_filenames)
+        for _id, filename in enumerate(img_filenames):
+
+            imgs = np.load(os.path.join(self.dataset_dir, filename))['arr_0']
+            logging.info('Resampling images from file %d of %d. %d images.' % (_id, num_files, len(imgs)))
+
+            # upsample
+            scaled_images = ImageTransform.resample(imgs, self.config['output_img_size'])
+            # scaled_images = {'arr_0': scaled_images}
+
+            # save
+            output_filename = output_filename_template + '_' + str(filename[-9:-4])
+            output_file_path = os.path.join(self.dataset_output_dir, output_filename)
+            np.savez(output_file_path, scaled_images)
+
+
+    def create_clustered_labels(self, num_bins=6, normalise=True):
+        """ Use Jenks Natural Breaks to bin data """
+
+        # load data
+        print('Loading data...')
+        metric_filenames = self.load_filenames(self.dataset_dir, self.grasp_metric)
+
+        print('Starting label conversion.')
+        st_time = time.time()
+
+        data = np.array([])
+
+        print('Loading data...')
+        for i, filename in enumerate(metric_filenames):
+            file_data = np.load(os.path.join(self.dataset_dir, filename))['arr_0']
+            data = np.concatenate((data, file_data))
+
+            if i % 100 == 0:
+                print('Loading data from file number %d out of %d' % (i + 1, len(metric_filenames)))
+
+        # get the bin edges using the Jenks Natural Breaks algorithm
+        # bin_edges = jenks(data, num_bins)
+        nzero_data_idx = np.where(data != 0)
+        nzero_data = data[nzero_data_idx]
+
+        if normalise:
+            nzero_data = (nzero_data - np.mean(nzero_data))/np.std(nzero_data)
+            # clip data to 3 standard deviations
+            nzero_data = np.clip(nzero_data, -3 * np.std(nzero_data), 3 * np.std(nzero_data))
+
+        print('Clustering %d data-points' % len(nzero_data))
+        # use one dimensional k-means clustering to get bin-edges
+        clus_st = time.time()
+        km = KMeans(n_clusters=num_bins-1, n_init=20, tol=0.00001, n_jobs=-1)
+        km.fit(np.reshape(nzero_data, [-1,1]))
+        print('Finished clustering in %.4f seconds!' % (time.time() - clus_st))
+
+        bin_centers = np.squeeze(km.cluster_centers_)
+        data_labels = np.squeeze(km.labels_)
+        bin_sorted_idx = np.argsort(bin_centers)
+        labels = np.arange(0, np.shape(bin_sorted_idx)[0] + 1, 1)
+
+        bin_idx_map = {}
+        for i, label in enumerate(bin_sorted_idx):
+            # add one because bin zero is reserved for grasps in collision
+            bin_idx_map[label] = i + 1
+
+        print('Binning data.')
+        binned_nz_data = np.zeros((np.shape(data_labels)))
+        for i, label in enumerate(data_labels):
+            binned_nz_data[i] = bin_idx_map[label]
+        print('Done!')
+
+        # add zero elements back
+        binned_data = np.zeros((np.shape(data)))
+        binned_data[nzero_data_idx] = binned_nz_data
+
+        # convert to one_hot representation
+        print('Converting data to one-hot vector representation...')
+        one_hot_data = self.create_one_hot(binned_data, labels)
+
+        # save to files
+        start_index = 0
+        end_index = self.config['num_points_per_file']
+        print('Starting file write...')
+        for i, filename in enumerate(metric_filenames):
+
+            # filenames
+            binned_label_filename = 'binned_clus_labels_' + filename[-9:-4]
+            binned_label_path = os.path.join(self.dataset_output_dir, binned_label_filename)
+
+            one_hot_label_filename = 'one_hot_clus_labels_' + filename[-9:-4]
+            one_hot_label_path = os.path.join(self.dataset_output_dir, one_hot_label_filename)
+
+            if end_index <= (len(binned_data) - 1):
+                binned_file_data = binned_data[start_index: end_index]
+                one_hot_file_data = one_hot_data[start_index: end_index, :]
+
+                start_index = end_index
+                end_index = end_index + self.config['num_points_per_file']
+
+            else:
+                binned_file_data = binned_data[start_index:]
+                one_hot_file_data = one_hot_data[start_index:, :]
+
+            # add a extra array dimension for convenience at training time
+            binned_file_data = np.expand_dims(binned_file_data, axis=1)
+
+            # save
+            np.savez_compressed(binned_label_path, binned_file_data)
+            np.savez_compressed(one_hot_label_path, one_hot_file_data)
+
+            if i % 100 == 0:
+                print('Saving file number %d out of %d' % (i + 1, len(metric_filenames)))
+
+        print('All labels written to file in %s(s)' % str(time.time() - st_time))
+
+
+
+    def create_percentile_labels(self):
         """ Creates and saves one-hot normalised and binned grasp quality labels for each label file in GQCNN dataset"""
 
         if not hasattr(self, 'metric_max'):
@@ -123,6 +341,11 @@ class UCLDatabaseGQCNN(object):
                 print('Loading data from file number %d out of %d' % (i + 1, len(metric_filenames)))
 
 
+        # convert raw data to binary labels
+        logging.info('Thresholding data data...')
+        binary_data = self.create_binary(np.copy(data), threshold=self.label_threshold)
+        binary_data = self.create_one_hot(binary_data, [0, 1])
+
         # normalise
         print('Normalising data...')
         normalised_data = self.normalise(data, normalisation_type=self.config['normalisation_type'])
@@ -142,6 +365,9 @@ class UCLDatabaseGQCNN(object):
         for i, filename in enumerate(metric_filenames):
 
             # filenames
+            binary_label_filename = 'binary_labels_' + filename[-9:-4]
+            binary_label_path = os.path.join(self.dataset_output_dir, binary_label_filename)
+
             binned_label_filename = 'binned_labels_' + filename[-9:-4]
             binned_label_path = os.path.join(self.dataset_output_dir, binned_label_filename)
 
@@ -149,6 +375,7 @@ class UCLDatabaseGQCNN(object):
             one_hot_label_path = os.path.join(self.dataset_output_dir, one_hot_label_filename)
 
             if end_index <= (len(binned_data) - 1):
+                binary_file_data = binary_data[start_index: end_index]
                 binned_file_data = binned_data[start_index: end_index]
                 one_hot_file_data = one_hot_data[start_index: end_index, :]
 
@@ -156,9 +383,15 @@ class UCLDatabaseGQCNN(object):
                 end_index = end_index + self.config['num_points_per_file']
 
             else:
+                binary_file_data = binary_data[start_index:]
                 binned_file_data = binned_data[start_index:]
                 one_hot_file_data = one_hot_data[start_index:, :]
 
+            # add a extra array dimension for convenience at training time
+            binned_file_data = np.expand_dims(binned_file_data, axis=1)
+
+            # save
+            np.savez_compressed(binary_label_path, binary_file_data)
             np.savez_compressed(binned_label_path, binned_file_data)
             np.savez_compressed(one_hot_label_path, one_hot_file_data)
 
@@ -166,6 +399,41 @@ class UCLDatabaseGQCNN(object):
                 print('Saving file number %d out of %d' % (i + 1, len(metric_filenames)))
 
         print('All labels written to file in %s(s)' % str(time.time() - st_time))
+
+
+    def normalise(self, data, normalisation_type='linear'):
+        """ Normalise data to the range [0,1] """
+
+        if normalisation_type == 'linear':
+            normalised_data = (data - self.metric_min)/(self.metric_max - self.metric_min)
+            normalised_data = np.clip(normalised_data, 0, float('inf'))         # corner case for grasps in collision
+
+        elif normalisation_type == 'percentile':
+            normalised_data = np.copy(data)
+            # non-zero data list
+            map_non_zero_org = np.where(data != 0)
+            non_zero_data = data[map_non_zero_org]
+            num_data_points = len(non_zero_data)
+
+            # keep track of indices
+            map_sorted_non_zero = np.argsort(non_zero_data)
+
+            # normalise
+            data_idx = np.arange(1, num_data_points + 1)
+            sorted_normalised_data = data_idx / float(num_data_points)
+
+            # map data back to original indices
+            non_zero_normalised_data = np.zeros(num_data_points)
+            non_zero_normalised_data[map_sorted_non_zero] = sorted_normalised_data
+            normalised_data[map_non_zero_org] = non_zero_normalised_data
+
+        elif normalisation_type == 'gamma':
+            pass
+
+        else:
+            raise ValueError('Unknown normalisation_type %s' % normalisation_type)
+
+        return normalised_data
 
 
     def visualise(self, vis_type='histogram'):
@@ -211,40 +479,6 @@ class UCLDatabaseGQCNN(object):
             vis.histogram(histogram_data, bins['labels'])
 
 
-    def normalise(self, data, normalisation_type='linear'):
-        """ Normalise data to the range [0,1] """
-
-        if normalisation_type == 'linear':
-            normalised_data = (data - self.metric_min)/(self.metric_max - self.metric_min)
-            normalised_data = np.clip(normalised_data, 0, float('inf'))         # corner case for grasps in collision
-
-        elif normalisation_type == 'percentile':
-            normalised_data = np.copy(data)
-            # non-zero data list
-            map_non_zero_org = np.where(data != 0)
-            non_zero_data = data[map_non_zero_org]
-            num_data_points = len(non_zero_data)
-
-            # keep track of indices
-            map_sorted_non_zero = np.argsort(non_zero_data)
-
-            # normalise
-            data_idx = np.arange(1, num_data_points + 1)
-            sorted_normalised_data = data_idx / float(num_data_points)
-
-            # map data back to original indices
-            non_zero_normalised_data = np.zeros(num_data_points)
-            non_zero_normalised_data[map_sorted_non_zero] = sorted_normalised_data
-            normalised_data[map_non_zero_org] = non_zero_normalised_data
-
-        elif normalisation_type == 'gamma':
-            pass
-
-        else:
-            raise ValueError('Unknown normalisation_type %s' % normalisation_type)
-
-        return normalised_data
-
     @staticmethod
     def histogram(data, num_bins, min_bin=0, max_bin=1):
         """ Digitise data into num_bins bins in the range [0,1] """
@@ -254,14 +488,23 @@ class UCLDatabaseGQCNN(object):
         return binned_data[0], binned_data[1]
 
     @staticmethod
-    def bin(data, bin_step=0.2, min_bin=0):
+    def bin(data, method='percentile', bin_edges=None, bin_step=0.2, min_bin=0):
         """ Digitise data into bins of step bin_step. Expects data normalise to the interval [0, 1] """
+
+        if method == 'clustering' and bin_edges is None:
+            raise ValueError('Must supply bin_edges for Jenks Natural Breaks based binning. Exiting.')
 
         # make sure data is an array
         data = np.array(data)
 
-        return min_bin + np.round(data/bin_step) * bin_step
+        if method == 'percentile':
+            binned_data = min_bin + np.round(data/bin_step) * bin_step
+        elif method == 'clustering':
+            binned_data = np.digitize(data, bin_edges)
+        else:
+            raise ValueError('Unknown binning method "%s" specified' % method)
 
+        return binned_data
 
     @staticmethod
     def create_one_hot(data, labels):
@@ -281,6 +524,25 @@ class UCLDatabaseGQCNN(object):
 
         return one_hot_data
 
+    @staticmethod
+    def create_binary(data, threshold):
+        """ Thresholds input data"""
+
+        binary_data = (data >= threshold).astype(np.int)
+
+        return binary_data
+
+    @staticmethod
+    def load_filenames(directory, template, sort=True):
+        """ Load a list of filenames matching the template from a given directory"""
+
+        filenames = os.listdir(directory)
+        matched_filenames = [name for name in filenames if name.find(template) > -1]
+
+        if sort:
+            matched_filenames = natsorted(matched_filenames)
+
+        return matched_filenames
 
     @staticmethod
     def fit_dist(data, dist_type='normal'):
@@ -324,6 +586,7 @@ class UCLDatabaseDexnet(object):
         self.gripper_name = self.config['gripper_name']
         self.grasp_metric = self.config['grasp_metric']
         self.cache_datapoints_limit = self.config['cache_datapoints_limit']
+        self.img_cache_datapoints_limit = self.config['img_cache_datapoints_limit']
 
         # params related to collision checking
         self._setup_collision_checker_params()
@@ -335,6 +598,7 @@ class UCLDatabaseDexnet(object):
         self.output_img_width = self.config['output_image_params']['output_img_width']
         self.output_img_crop_width = self.config['output_image_params']['output_img_crop_width']
         self.output_img_crop_height = self.config['output_image_params']['output_img_crop_height']
+
 
     def _setup_collision_checker_params(self):
         """ Setup the discrete space over which to sample the collision checking """
@@ -369,10 +633,12 @@ class UCLDatabaseDexnet(object):
     def get_object_keys(self):
         pass
 
+
     def _get_stable_poses(self):
         """ Get the stable poses in which the object can be placed on the table"""
         for key in self.hdf5_ds.object_keys:
             self.stable_poses[key] = self.hdf5_ds.stable_poses(key)
+
 
     def _get_collision_free_grasps(self, obj, all_grasps):
         """ Filters out grasps that are in collision with the table"""
@@ -437,6 +703,7 @@ class UCLDatabaseDexnet(object):
                 num_data_points += 1
 
         return valid_grasps, num_data_points
+
 
     def get_grasps(self, num_objs=float('inf')):
         """ Get grasps for the given object and gripper. Saves the resulting grasping into cache"""
@@ -601,7 +868,7 @@ class UCLDatabaseDexnet(object):
                                    'vis': {'camera_intr': corrected_camera_intr}}
                     obj_renders[obj.key][pose.id].append(pose_sample)
 
-            if current_data_points > self.cache_datapoints_limit or (obj_idx + 1) == len(objs):
+            if current_data_points > self.img_cache_datapoints_limit or (obj_idx + 1) == len(objs):
                 # cache filenames
                 cache_filename = 'image_cache' + str(pickle_file_num) + '.pkl'
                 image_cache_filename = os.path.join(self.dataset_cache_dir + cache_filename)
@@ -713,7 +980,9 @@ if __name__ == '__main__':
 
     # UCL_GQCNN
     ucl_gqcnn_db = UCLDatabaseGQCNN(gqcnn_config)
+    ucl_gqcnn_db.shuffle_pre_existing_data()
     # ucl_gqcnn_db.get_metric_stats()                 # get statistics about successful grasps
-    ucl_gqcnn_db.create_labels()                    # create one-hot labels for quality function
+    # ucl_gqcnn_db.create_images('depth_ims_tf_table', 'depth_ims_stf_{}_table'.format(gqcnn_config['output_img_size']))
+    # ucl_gqcnn_db.create_labels()                    # create one-hot labels for quality function
     # ucl_gqcnn_db.visualise()
     pass

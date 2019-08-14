@@ -20,7 +20,7 @@ class UCLVisualiser(object):
         """
         Plot histogram from data
 
-        (Inspired from: https://stackoverflow.com/questions/29508208/best-way-to-plot-categorical-data)
+        (Inspired by: https://stackoverflow.com/questions/29508208/best-way-to-plot-categorical-data)
         """
 
         num_data_points = len(histogram_data)
@@ -41,6 +41,8 @@ class UCLVisualiser(object):
             x_tick_labels = [bins[int(tick)] for tick in x_ticks]
             ax.set_xticklabels(['{:.1e}'.format(label) for label in x_tick_labels])
 
+        ax.set_xlabel('Robust Ferrau Canny Metric')
+        ax.set_ylabel('Number of samples')
         plt.show()
 
 

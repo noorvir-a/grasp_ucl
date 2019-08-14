@@ -1,18 +1,24 @@
 # directories and filenames
 database_dir: /home/noorvir/datasets/gqcnn/
-dataset_dir: /home/noorvir/datasets/gqcnn/dexnet_large/3dnet_kit
-dataset_output_dir: /home/noorvir/datasets/gqcnn/dexnet_large_ucl
+dataset_dir: /home/noorvir/datasets/gqcnn/dexnet_mini
+
+shuffled_dataset_output_dir: /home/noorvir/datasets/gqcnn/dexnet_mini
+dataset_output_dir: /home/noorvir/datasets/gqcnn/dexnet_mini_ucl
 dataset_cache_dir: /home/noorvir/catkin_ws/src/gqcnn/.gqcnn/cache/
 metric_stats_filename: metric_stats.pkl
 num_points_per_file: 1000
 
+input_img_size: 32
+output_img_size: 227
+
 grasp_metric: robust_ferrari_canny
 num_bins: 6
 bin_step: 0.2
+label_threshold: 0.002                          # threshold for positive labels
 labels: [0.0, 0.2, 0.4, 0.6, 0.8, 1.0]
 normalisation_type: percentile
 
 # visualisation
 visualise_metric_stats: 1
-vis_histogram_num_bins: 5     # we do not visualise bin 0
-vis_histogram_bin_step: 0.2     # set to auto to automatically compute bin edges
+vis_histogram_num_bins: 100                    # 5 if visualising grasp quality bins (we do not visualise bin 0)
+vis_histogram_bin_step: 0.2                    # set to auto to automatically compute bin edges

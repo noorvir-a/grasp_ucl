@@ -27,50 +27,83 @@ import time
 # load raw depth image and sample grasps using policy.py
 #
 
+def test_network(dataset_config):
 
-####################
-# GUANt Test
-####################
+    # store metrics over multiple trails in lists
+    accuracy_list = []
+    error_list = []
+    gt_labels_list = []
+    predicted_labels_list = []
 
-guant_config = YamlConfig('/home/noorvir/catkin_ws/src/grasp_ucl/cfg/guant.yaml')
-dataset_config = YamlConfig(guant_config['dataset_config'])['guant']
+    test_data_loader = DataLoader(guant, dataset_config)
+    num_test_trials = 2
 
-guant = GUANt(guant_config)
+    for trial in xrange(num_test_trials):
 
-# store metrics over multiple trails in lists
-accuracy_list = []
-error_list = []
-gt_labels_list = []
-predicted_labels_list = []
+        img_batch, pose_batch, label_batch = test_data_loader.get_test_batch()
 
-test_data_loader = DataLoader(guant, dataset_config)
-num_test_trials = 2
+        print('Starting trial number %d of %d' % (trial, num_test_trials))
+        if trial == num_test_trials - 1:
+            accuracy, error, predicted_labels = guant.predict(img_batch, pose_batch, label_batch, close_sess=True, is_test=True)
+        else:
+            accuracy, error, predicted_labels = guant.predict(img_batch, pose_batch, label_batch, is_test=True)
 
-for trial in xrange(num_test_trials):
+        gt_labels = np.where(label_batch[:, :] == 1)[1]
 
-    img_batch, pose_batch, label_batch = test_data_loader.get_test_batch()
+        accuracy_list.append(accuracy)
+        error_list.append(error)
+        gt_labels_list.append(list(gt_labels))
+        predicted_labels_list.append(list(predicted_labels))
 
-    print('Starting trial number %d of %d' % (trial, num_test_trials))
-    if trial == num_test_trials -1:
-        accuracy, error, predicted_labels = guant.predict(img_batch, pose_batch, label_batch, close_sess=True, test=True)
-    else:
-        accuracy, error, predicted_labels = guant.predict(img_batch, pose_batch, label_batch, test=True)
+    print('Finished all trials')
 
-    gt_labels = np.where(label_batch[:, :] == 1)[1]
+    confusion_mat = confusion_matrix(predicted_labels, gt_labels)
+    print('accuracy %.4f' % np.mean(accuracy))
+    print(confusion_mat)
 
-    accuracy_list.append(accuracy)
-    error_list.append(error)
-    gt_labels_list.append(list(gt_labels))
-    predicted_labels_list.append(list(predicted_labels))
 
-print('Finished all trials')
-
-label_batch_pd = pandas.Series(gt_labels_list, name='Actual')
-predicted_labels_pd = pandas.Series(predicted_labels_list, name='Predicted')
+# label_batch_pd = pandas.Series(gt_labels_list, name='Actual')
+# predicted_labels_pd = pandas.Series(predicted_labels_list, name='Predicted')
 
 # confusion_mat = pandas.crosstab(label_batch_pd, predicted_labels_pd, rownames=['Actual'], colnames=['Predicted'],  margins=True)
-confusion_mat = confusion_matrix(predicted_labels, gt_labels)
 
-print('accuracy %.4f' % np.mean(accuracy))
-print(confusion_mat)
+if __name__ == '__main__':
+
+    # GUANt Test
+    guant_config = YamlConfig('/home/noorvir/catkin_ws/src/grasp_ucl/cfg/guant.yaml')
+    guant_dataset_config = YamlConfig(guant_config['dataset_config'])['guant']
+    guant = GUANt(guant_config)
+
+    # GQUNt Test
+    # gqunt_config = YamlConfig('/home/noorvir/catkin_ws/src/grasp_ucl/cfg/gqunt.yaml')
+    # gqunt_dataset_config = YamlConfig(gqunt_config['dataset_config'])['gqunt']
+    # guant = GUANt(gqunt_config)
+    #
+    #
+    # test_network(guant_dataset_config)
+    # test_network(gqunt_dataset_config)
+
+    guant_sh_config = YamlConfig('/home/noorvir/catkin_ws/src/grasp_ucl/cfg/guant_sh.yaml')
+    guant_sh = GUANtSH(guant_sh_config)
+
+    config_filename = '/home/noorvir/catkin_ws/src/grasp_ucl/cfg/grasp.yaml'
+    test_grasping(guant_sh, config_filename)
+
+
+
+
+
+
+
+# get test datapoints --- raw
+# sample grasps with policy
+# store and apply transformations
+# run images through network
+# plot each of the grasp and its quality on the original image
+
+
+
+
+
+
 

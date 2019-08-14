@@ -22,7 +22,7 @@ class NeuralNetLayers(object):
 
 
     @staticmethod
-    def convolution(x, filter_dim, num_filters, pool_stride, initialiser, name, padding='SAME'):
+    def convolution(x, filter_dim, num_filters, conv_stride, initialiser, name, padding='SAME'):
         """Create a convolution layer.
 
         Adapted from: https://github.com/ethereon/caffe-tensorflow
@@ -31,7 +31,7 @@ class NeuralNetLayers(object):
         input_channels = int(x.get_shape()[-1])
 
         # Create lambda function for the convolution
-        convolve = lambda i, k: tf.nn.conv2d(i, k, strides=[1, pool_stride, pool_stride, 1], padding=padding)
+        convolve = lambda i, k: tf.nn.conv2d(i, k, strides=[1, conv_stride, conv_stride, 1], padding=padding)
 
         with tf.variable_scope(name) as scope:
             # Create tf variables for the weights and biases of the conv layer
@@ -94,7 +94,7 @@ class NeuralNetLayers(object):
         return tf.nn.dropout(x, keep_prob)
 
 
-class NeuralNets(object):
+class NeuralNet(object):
     """ Class to provide shared functionality to create neural nets"""
 
     def __init__(self, network):
@@ -122,7 +122,8 @@ class NeuralNets(object):
         self.dataset_config = self.config['dataset_config']
         self.summary_dir = self.config['summary_dir']
         self.checkpoint_dir = self.config['checkpoint_dir']
-        self.pt_weights_file = self.config['pt_weights_filename']
+        self.model_dir = self.config['model_dir']
+        self.pt_model_filename = self.config['pt_model_filename']
         self.checkpoint_filename = self.config['checkpoint_filename']
         self.dataset_name = self.config['dataset_name']
 
@@ -131,7 +132,6 @@ class NeuralNets(object):
         self.data_metrics_filename = self.config['data_metics_filename']
         self.img_max_val = self.config['img_max_val']
         self.img_min_val = self.config['img_min_val']
-        self.pose_size = self.config['pose_size']
         self.datapoints_per_file = self.config['datapoints_per_file']
         self.frac_datapoints_from_file = self.config['frac_datapoints_from_file']
 
@@ -160,14 +160,33 @@ class NeuralNets(object):
         self.momentum_rate = self.config['momentum_rate']
         self.exponential_decay = self.config['exponential_decay']
 
-
         # architecture
         self.img_width = self.config['architecture']['img_width']
         self.img_height = self.config['architecture']['img_height']
         self.img_channels = self.config['architecture']['img_channels']
         self.num_classes = self.config['architecture']['num_classes']
-        self.retrain_layers = self.config['architecture']['retrain_layers']
-        self.skip_layers = self.config['architecture']['skip_layers']
+        self.pose_dim = self.config['architecture']['pose_dim']
+        self.train_layers = self.config['architecture']['train_layers']
+        self.load_layers = self.config['architecture']['load_layers']
+
+        # use pose input or not
+        self.use_pose = 'fc7p' in self.train_layers
+        if self.use_pose:
+            self.train_layers.append('pc1')
+
+
+    def signal_handler(self, sig_num, frame):
+        """ Handle CNTRL+C signal and shutdown process"""
+
+        logging.info('CNTRL+C signal received')
+        # close TensorBoard
+        self._close_tensorboard()
+        logging.info('Closing TensorFlow session')
+        # close session
+        self._network.sess.close()
+        logging.info('Forcefully exiting')
+        exit()
+
 
     def get_data_metrics(self):
         """ Get metrics on training data """
@@ -238,15 +257,21 @@ class NeuralNets(object):
             raise ValueError('Loss "%s" not supported' % self.config['loss'])
 
 
-    def create_optimiser(self, batch):
+    def create_optimiser(self, batch, var_list):
         """ Create the optimiser specified in the config file"""
 
         if self.config['optimiser'] == 'momentum':
-            return tf.train.MomentumOptimizer(self.learning_rate, self.momentum_rate).minimize(self._network.loss, global_step=batch)
+            return tf.train.MomentumOptimizer(self.learning_rate, self.momentum_rate).minimize(self._network.loss, global_step=batch,
+                                                                                               var_list=var_list)
         elif self.config['optimiser'] == 'adam':
-            return tf.train.AdamOptimizer(self.learning_rate).minimize(self._network.loss, global_step=batch)
+            return tf.train.AdamOptimizer(self.learning_rate).minimize(self._network.loss, global_step=batch, var_list=var_list)
+
         elif self.config['optimiser'] == 'rmsprop':
-            return tf.train.RMSPropOptimizer(self.learning_rate).minimize(self._network.loss, global_step=batch)
+            return tf.train.RMSPropOptimizer(self.learning_rate).minimize(self._network.loss, global_step=batch, var_list=var_list)
+
+        elif self.config['optimiser'] == 'sgd':
+            return tf.train.GradientDescentOptimizer(self.learning_rate).minimize(self._network.loss, global_step=batch, var_list=var_list)
+
         else:
             raise ValueError('Optimiser %s not supported' % (self.config['optimiser']))
 
@@ -256,42 +281,37 @@ class NeuralNets(object):
         Load pretrained weights from file.
 
         """
+        model_path = os.path.join(self.model_dir, self.pt_model_filename)
+        logging.info('Loading weights from pre-trained model')
+        logging.info('Model path %s: ' % model_path)
 
-        #https: // www.tensorflow.org / programmers_guide / variables  # choosing_which_variables_to_save_and_restore
-        #all_vars = tf.all_variables()
-        #var_to_restore = [v for v in all_vars if not v.name.startswith('xxx')]
-        #saver = tf.train.Saver(var_to_restore)
+        weights = [var.name.split('/')[0] for var in tf.trainable_variables() if var.name.split('/')[0] in self.load_layers]
+        weights = list(set(weights))
 
-        logging.info('Loading weights from pretrained AlexNet')
+        # checkpoint reader
+        reader = tf.train.NewCheckpointReader(model_path)
 
-        # Load the weights into memory
-        weights_dict = np.load(self.pt_weights_file, encoding='bytes').item()
+        for wt_name in weights:
+            with tf.variable_scope(wt_name, reuse=True):
 
-        # Loop over all layer names stored in the weights dict
-        for op_name in weights_dict:
+                # special treatment for fc4
+                if wt_name != 'fc4':
+                    data = reader.get_tensor(wt_name + 'W')
+                    var = tf.get_variable(wt_name + 'W')
+                    self._network.sess.run(var.assign(data))
 
-            if op_name in self.skip_layers:
-                continue
+                else:
+                    data = reader.get_tensor('fc4W_im')
+                    var = tf.get_variable('fc4W_im')
+                    self._network.sess.run(var.assign(data))
 
-            with tf.variable_scope(op_name, reuse=True):
+                    data = reader.get_tensor('fc4W_pose')
+                    var = tf.get_variable('fc4W_pose')
+                    self._network.sess.run(var.assign(data))
 
-                is_trainable = False
-                # Check if weights in this layer should be modified
-                if op_name in self.retrain_layers:
-                    is_trainable = True
-
-                # Assign weights/biases to their corresponding tf variable
-                for data in weights_dict[op_name]:
-
-                    # Biases
-                    if len(data.shape) == 1:
-                        var = tf.get_variable('biases', trainable=is_trainable)
-                        self._sess.run(var.assign(data))
-
-                    # Weights
-                    else:
-                        var = tf.get_variable('weights', trainable=is_trainable)
-                        self._sess.run(var.assign(data))
+                data = reader.get_tensor(wt_name + 'b')
+                var = tf.get_variable(wt_name + 'b')
+                self._network.sess.run(var.assign(data))
 
         logging.info('Done.')
 
@@ -299,11 +319,29 @@ class NeuralNets(object):
     def load_weights_from_checkpoint(self):
         """ Load weights from checkpoint file."""
 
-        logging.info('Loading weights from checkpoint')
         checkpoint_path = os.path.join(self.checkpoint_dir, self.checkpoint_filename)
-        logging.info('Checkpoint path: checkpoint_path')
+        logging.info('Loading weights from checkpoint')
+        logging.info('Checkpoint path %s: ' % checkpoint_path)
 
-        self._network.saver.restore(self._sess, checkpoint_path)
+        reader = tf.train.NewCheckpointReader(checkpoint_path)
+
+        # var_list = [var for var in tf.trainable_variables() if var.name.split('/')[0] in self.train_layers]
+
+        for op_name in self.load_layers:
+            with tf.variable_scope(op_name, reuse=True):
+
+                try:
+                    data = reader.get_tensor(op_name + '/biases')
+                    var = tf.get_variable('biases')
+                    self._network.sess.run(var.assign(data))
+                except tf.errors.NotFoundError:
+                    logging.warn('Skipping initialising weight: %s' % (op_name + '/biases'))
+
+                data = reader.get_tensor(op_name + '/weights')
+                var = tf.get_variable('weights')
+                self._network.sess.run(var.assign(data))
+
+        # self.saver.restore(self.sess, checkpoint_path)
         logging.info('Done.')
 
 
@@ -314,7 +352,7 @@ class NeuralNets(object):
         tf.summary.scalar(self.config['loss'] + '_loss', self._network.loss, collections=['training_summary'])
 
         # gradients
-        gradient_list = self.retrain_layers + ['fc8']
+        gradient_list = self.train_layers
         var_list = [var for var in tf.trainable_variables() if var.name.split('/')[0] in gradient_list]
         gradients = tf.gradients(self._network.loss, var_list)
         gradients = list(zip(gradients, var_list))
@@ -322,6 +360,8 @@ class NeuralNets(object):
         for gradient, var in gradients:
             tf.summary.histogram(var.name[:-2] + '/gradient', gradient, collections=['training_summary'])
 
+        # learning rate
+        tf.summary.scalar('learning_rate', self.learning_rate, collections=['training_summary'])
         # accuracy
         tf.summary.scalar('train_accuracy', self.accuracy_op, collections=['training_summary'])
         tf.summary.scalar('val_accuracy', self._network.pred_accuracy_op, collections=['validation_summary'])
@@ -351,11 +391,11 @@ class NeuralNets(object):
 
         with tf.name_scope('train_data_loader'):
             # wrap python function to load data from numpy files
-            train_imgs, train_labels = tf.py_func(self.loader.load_train_data, inp=[], Tout=[tf.float32, tf.float32])
+            train_imgs, train_poses, train_labels = tf.py_func(self.loader.load_train_data, inp=[], Tout=[tf.float32, tf.float32, tf.float32])
 
         with tf.name_scope('val_data_loader'):
             # wrap python function to load data from numpy files
-            val_imgs, val_labels = tf.py_func(self.loader.load_val_data, inp=[], Tout=[tf.float32, tf.float32])
+            val_imgs, val_poses, val_labels = tf.py_func(self.loader.load_val_data, inp=[], Tout=[tf.float32, tf.float32, tf.float32])
 
         # ---------------------------------
         # 1. Training Queues
@@ -363,50 +403,56 @@ class NeuralNets(object):
         # queue to load data from file into training buffer
         with tf.name_scope('train_data_queue'):
             if not self.debug:
-                self.train_data_queue = tf.FIFOQueue(self.train_data_queue_capacity, dtypes=[tf.float32, tf.float32],
+                self.train_data_queue = tf.FIFOQueue(self.train_data_queue_capacity, dtypes=[tf.float32, tf.float32, tf.float32],
                                                      shapes=[[self.img_width, self.img_height, self.img_channels],
+                                                             [self.pose_dim],
                                                              [self.num_classes]], name='train_data_queue')
 
-                self.train_data_enqueue_op = self.train_data_queue.enqueue_many([train_imgs, train_labels], name='enqueue_op')
+                self.train_data_enqueue_op = self.train_data_queue.enqueue_many([train_imgs, train_poses, train_labels], name='enqueue_op')
                 self.data_queue_size_op = self.train_data_queue.size()
 
         # queue data into batches from from buffer
         with tf.name_scope('train_batch_queue'):
             if self.debug:
-                train_batch_imgs, train_batch_labels = tf.py_func(self.loader.debug_load_and_enqueue, inp=[], Tout=[tf.float32, tf.float32])
+                train_batch_imgs, train_batch_poses, train_batch_labels = tf.py_func(self.loader.debug_load_and_enqueue, inp=[], Tout=[tf.float32, tf.float32, tf.float32])
             else:
-                train_batch_imgs, train_batch_labels = self.loader.get_train_data()
+                train_batch_imgs, train_batch_poses, train_batch_labels = self.loader.get_train_data()
 
-            self.train_input_node, self.train_label_node = tf.train.batch([train_batch_imgs, train_batch_labels],
-                                                                          self.batch_size,
-                                                                          num_threads=self.num_train_batch_enqueue_threads,
-                                                                          capacity=self.train_batch_queue_capacity,
-                                                                          enqueue_many=True,
-                                                                          shapes=[[self.img_width, self.img_height,
-                                                                                   self.img_channels], [self.num_classes]])
+            self.train_input_node, self.train_pose_node, self.train_label_node = tf.train.batch([train_batch_imgs, train_batch_poses, train_batch_labels],
+                                                                                                self.batch_size,
+                                                                                                num_threads=self.num_train_batch_enqueue_threads,
+                                                                                                capacity=self.train_batch_queue_capacity,
+                                                                                                enqueue_many=True,
+                                                                                                shapes=[[self.img_width, self.img_height,
+                                                                                                         self.img_channels],
+                                                                                                        [self.pose_dim],
+                                                                                                        [self.num_classes]])
 
-        # ---------------------------------
+        ## ---------------------------------
         # 2. Validation Queues
         # ---------------------------------
         # queue to load data from file into validation buffer
         with tf.name_scope('val_data_queue'):
             # validation data queue
-            self.val_data_queue = tf.FIFOQueue(self.val_data_queue_capacity, dtypes=[tf.float32, tf.float32],
+            self.val_data_queue = tf.FIFOQueue(self.val_data_queue_capacity, dtypes=[tf.float32, tf.float32, tf.float32],
                                                shapes=[[self.img_width, self.img_height, self.img_channels],
+                                                       [self.pose_dim],
                                                        [self.num_classes]], name='val_data_queue')
 
-            self.val_data_enqueue_op = self.val_data_queue.enqueue_many([val_imgs, val_labels], name='enqueue_op')
+            self.val_data_enqueue_op = self.val_data_queue.enqueue_many([val_imgs, val_poses, val_labels], name='enqueue_op')
 
         # queue data into batches from from buffer
         with tf.name_scope('val_batch_queue'):
-            val_batch_imgs, val_batch_labels = self.loader.get_val_data()
-            self.val_input_node, self.val_label_node = tf.train.batch([val_batch_imgs, val_batch_labels],
-                                                                      self.batch_size,
-                                                                      num_threads=self.num_val_batch_enqueue_threads,
-                                                                      capacity=self.val_batch_queue_capacity,
-                                                                      enqueue_many=True,
-                                                                      shapes=[[self.img_width, self.img_height,
-                                                                               self.img_channels], [self.num_classes]])
+            val_batch_imgs, val_batch_poses, val_batch_labels = self.loader.get_val_data()
+            self.val_input_node, self.val_pose_node, self.val_label_node = tf.train.batch([val_batch_imgs, val_batch_poses, val_batch_labels],
+                                                                                          self.batch_size,
+                                                                                          num_threads=self.num_val_batch_enqueue_threads,
+                                                                                          capacity=self.val_batch_queue_capacity,
+                                                                                          enqueue_many=True,
+                                                                                          shapes=[[self.img_width, self.img_height,
+                                                                                                   self.img_channels],
+                                                                                                  [self.pose_dim],
+                                                                                                  [self.num_classes]])
 
 
     def init_metric_ops(self):

@@ -90,13 +90,13 @@ class GUANt(object):
         self.img_channels = self.config['architecture']['img_channels']
         self.num_classes = self.config['architecture']['num_classes']
         self.pose_dim = self.config['architecture']['pose_dim']
-        self.retrain_layers = self.config['architecture']['retrain_layers']
+        self.train_layers = self.config['architecture']['train_layers']
         self.load_layers = self.config['architecture']['load_layers']
 
         # use pose input or not
-        self.use_pose = 'fc7p' in self.retrain_layers
+        self.use_pose = 'fc7p' in self.train_layers
         if self.use_pose:
-            self.retrain_layers.append('pc1')
+            self.train_layers.append('pc1')
 
 
     def _signal_handler(self, sig_num, frame):
@@ -250,7 +250,7 @@ class GUANt(object):
 
         reader = tf.train.NewCheckpointReader(checkpoint_path)
 
-        # var_list = [var for var in tf.trainable_variables() if var.name.split('/')[0] in self.retrain_layers]
+        # var_list = [var for var in tf.trainable_variables() if var.name.split('/')[0] in self.train_layers]
 
         for op_name in self.load_layers:
             with tf.variable_scope(op_name, reuse=True):
@@ -278,7 +278,7 @@ class GUANt(object):
 
         # gradients
         # TODO: fix the gradient list hack
-        gradient_list = self.retrain_layers + ['fc8']
+        gradient_list = self.train_layers + ['fc8']
         var_list = [var for var in tf.trainable_variables() if var.name.split('/')[0] in gradient_list]
         gradients = tf.gradients(self.loss, var_list)
         gradients = list(zip(gradients, var_list))
@@ -452,7 +452,7 @@ class GUANt(object):
 
         init = tf.contrib.layers.xavier_initializer()
         # initialise raw AlexNet
-        alexnet = AlexNet(input_data, pose_data, self.num_classes, use_pose=self.use_pose, retrain_layers=self.retrain_layers, initialiser=init)
+        alexnet = AlexNet(input_data, pose_data, self.num_classes, use_pose=self.use_pose, retrain_layers=self.train_layers, initialiser=init)
 
         # network output
         return alexnet.layers['fc8']
@@ -510,7 +510,7 @@ class GUANt(object):
             # for consistency
             self.learning_rate = tf.constant(self.learning_rate)
 
-        var_list = [var for var in tf.trainable_variables() if var.name.split('/')[0] in self.retrain_layers]
+        var_list = [var for var in tf.trainable_variables() if var.name.split('/')[0] in self.train_layers]
 
         # create loss
         with tf.name_scope('loss'):
@@ -571,7 +571,7 @@ class GUANt(object):
         logging.info('Number of Training Data-points: %s' % str(self.loader.num_train))
         logging.info('Loss: %s' % self.config['loss'])
         logging.info('Optimiser: %s' % self.config['optimiser'])
-        logging.info('Pre-trained layers: %s' % str(self.retrain_layers))
+        logging.info('Pre-trained layers: %s' % str(self.train_layers))
         logging.info('Dataset Name: %s' % str(self.dataset_name))
         logging.info('Fraction of Dataset Used: %s' % str(self.config['data_used_fraction']))
         logging.info('Fraction of Positive samples: %s' % str(self.config['pos_train_frac']))
@@ -654,7 +654,7 @@ class GUANt(object):
             coord.join(threads)
 
 
-    def predict(self, input_batch, pose_label, label_batch, close_sess=False, test=False):
+    def predict(self, input_batch, pose_label, label_batch, close_sess=False, is_test=False):
         """ Predict """
 
         with self._graph.as_default():
@@ -673,7 +673,7 @@ class GUANt(object):
                 self._pred_network_initialised = True
 
             # load model
-            if test:
+            if is_test:
                 self._load_weights_from_checkpoint()
                 # saver = tf.train.Saver()
                 # saver.restore(self.sess, model_path)

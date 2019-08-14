@@ -3,11 +3,18 @@ guant:
   filename_templates:
     depth_imgs: depth_ims_stf_227_table
     poses: hand_poses
-    labels: binary_labels                 # binary_labels, one_hot_labels
+    labels: one_hot_clus_labels                 # binary_labels, one_hot_labels
 
   images_per_file: 1000
 
+# GQUN-t network
+gqunt:
+  filename_templates:
+    depth_imgs: depth_ims_tf_table
+    poses: hand_poses
+    labels: one_hot_clus_labels                 # binary_labels, one_hot_labels
 
+  images_per_file: 1000
 
 # GUAN network
 guan:

@@ -1,4 +1,6 @@
-from nn_util import NeuralNet, NeuralNetLayers
+from alexnet import AlexNet
+from grasp_ucl.utils.pre_process import DataLoader
+from grasp_ucl.neural_networks.nn_util import NeuralNet, NeuralNetLayers
 from autolab_core import YamlConfig
 from datetime import datetime
 import tensorflow as tf
@@ -12,26 +14,13 @@ import os
 logging.getLogger().setLevel(logging.INFO)
 
 
-class GQUNtLayers(object):
-    """ Helper struct to store layers"""
-    def __init__(self):
-        pass
-
-
-class GQUNt(object):
-    """ Class to wrap the functionality of the Grasp Uncertainty Alex Net GUAN architecture"""
+class GUANt(object):
+    """ Class to wrap the functionality of the Transformed - Grasp Uncertainty Alex Net GUAN-t architecture"""
 
     def __init__(self, config):
 
-        # initialise network
         self.config = config
-        self.architecture = self.config['architecture']
-        self.normalization_radius = config['normalisation_radius']
-        self.normalization_alpha = config['normalisation_alpha']
-        self.normalization_beta = config['normalisation_beta']
-        self.normalization_bias = config['normalisation_bias']
-
-
+        self.sess = None
         self.nn = NeuralNet(self)
         # get utils for creating layers of net
         self.util = NeuralNetLayers()
@@ -41,114 +30,16 @@ class GQUNt(object):
         self._queues_initialised = False
         self._pred_network_initialised = False
 
-    def _load_architecture(self):
-        pass
 
     def _create_network(self, img_data, pose_data):
         """ Create GUAN-t on top of AlexNet"""
 
-        initialiser = tf.contrib.layers.xavier_initializer()
-        # {"conv1_1": {"filt_dim": 7, "num_filt": 64, "pool_size": 1, "pool_stride": 1, "norm": 0},
-        #  "conv1_2": {"filt_dim": 5, "num_filt": 64, "pool_size": 2, "pool_stride": 2, "norm": 1},
-        #  "conv2_1": {"filt_dim": 3, "num_filt": 64, "pool_size": 1, "pool_stride": 1, "norm": 0},
-        #  "conv2_2": {"filt_dim": 3, "num_filt": 64, "pool_size": 1, "pool_stride": 1, "norm": 1}, "pc1": {"out_size": 16},
-        #  "pc2": {"out_size": 0}, "fc3": {"out_size": 1024}, "fc4": {"out_size": 1024}, "fc5": {"out_size": 2}}
+        init = tf.contrib.layers.xavier_initializer()
+        # initialise raw AlexNet
+        alexnet = AlexNet(img_data, pose_data, self.nn.num_classes, use_pose=self.nn.use_pose, retrain_layers=self.nn.train_layers, initialiser=init)
 
-        self.layers = GQUNtLayers()
-
-        # 1. 1st convolution layer part 1 - conv_1_1
-        self.layers.conv1_1 = self.util.convolution(img_data, filter_dim=7, num_filters=64, conv_stride=1, name='conv1_1',
-                                                    initialiser=initialiser)
-
-        if self.architecture['layers']['conv1_1']['norm']:
-            self.layers.conv1_1 = self.util.lrn(self.layers.conv1_1, self.normalization_radius, self.normalization_alpha,
-                                                self.normalization_beta, self.normalization_bias, name='lrn1_1')
-
-        # 2. 1st convolution layer part 2 - conv_1_2
-        self.layers.conv1_2 = self.util.convolution(self.layers.conv1_1, filter_dim=5, num_filters=64, conv_stride=1, name='conv1_2',
-                                                    initialiser=initialiser)
-
-        if self.architecture['layers']['conv1_2']['norm']:
-            self.layers.conv1_2 = self.util.lrn(self.layers.conv1_2, self.normalization_radius, self.normalization_alpha,
-                                                self.normalization_beta, self.normalization_bias, name='lrn1_2')
-
-        # 3. pooling layer
-        self.layers.pool1_2 = self.util.max_pool(self.layers.conv1_2, 2, 2, name='pool1_2')
-
-        # 4. 2nd convolution layer part 1 - conv_2_1
-        self.layers.conv2_1 = self.util.convolution(self.layers.pool1_2, filter_dim=3, num_filters=64, conv_stride=1, name='conv2_1',
-                                                    initialiser=initialiser)
-
-        if self.architecture['layers']['conv2_1']['norm']:
-            self.layers.conv2_1 = self.util.lrn(self.layers.conv2_1, self.normalization_radius, self.normalization_alpha,
-                                                self.normalization_beta, self.normalization_bias, name='lrn2_1')
-
-        # 5. 2nd convolution layer part 2 - conv_2_2
-        self.layers.conv2_2 = self.util.convolution(self.layers.conv2_1, filter_dim=3, num_filters=64, conv_stride=1, name='conv2_2',
-                                                    initialiser=initialiser)
-
-        if self.architecture['layers']['conv2_2']['norm']:
-            self.layers.conv2_2 = self.util.lrn(self.layers.conv2_2, self.normalization_radius, self.normalization_alpha,
-                                                self.normalization_beta, self.normalization_bias, name='lrn2_2')
-
-        self.layers.pool2_2 = self.util.max_pool(self.layers.conv2_2, 2, 1, name='pool1_2')
-
-        # self.layers.conv2_2_flat = tf.reshape(self.layers.conv2_2, [-1, ])
-        self.layers.conv2_2_flat = tf.contrib.layers.flatten(self.layers.conv2_2)
-        fc3_input_shape = self.sess.run(tf.shape(self.layers.conv2_2_flat)[1])
-        fc3_input = self.layers.conv2_2_flat
-
-        if self.architecture['layers']['conv3_1']['use']:
-            self.layers.conv3_1 = self.util.convolution(self.layers.pool2_2, filter_dim=3, num_filters=64, conv_stride=1,
-                                                        name='conv3_1',
-                                                        initialiser=initialiser)
-
-            if self.architecture['layers']['conv3_1']['norm']:
-                self.layers.conv3_1 = self.util.lrn(self.layers.conv3_1, self.normalization_radius, self.normalization_alpha,
-                                                    self.normalization_beta, self.normalization_bias, name='lrn3_1')
-
-            self.layers.pool3_1 = self.util.max_pool(self.layers.conv3_1, 2, 1, name='pool3_1')
-
-            self.layers.conv3_1_flat = tf.contrib.layers.flatten(self.layers.pool3_1)
-            fc3_input_shape = self.sess.run(tf.shape(self.layers.conv3_1_flat)[1])
-            fc3_input = self.layers.conv3_1_flat
-
-        if self.architecture['layers']['conv3_2']['use']:
-            self.layers.conv3_2 = self.util.convolution(self.layers.pool3_1, filter_dim=3, num_filters=64, conv_stride=1,
-                                                        name='conv3_2',
-                                                        initialiser=initialiser)
-
-            if self.architecture['layers']['conv3_2']['norm']:
-                self.layers.conv3_2 = self.util.lrn(self.layers.conv3_2, self.normalization_radius, self.normalization_alpha,
-                                                    self.normalization_beta, self.normalization_bias, name='lrn3_2')
-
-            self.layers.pool3_2 = self.util.max_pool(self.layers.conv3_2, 2, 1, name='pool3_2')
-
-            self.layers.conv3_2_flat = tf.contrib.layers.flatten(self.layers.pool3_2)
-            fc3_input_shape = self.sess.run(tf.shape(self.layers.conv3_2_flat)[1])
-            fc3_input = self.layers.conv3_2_flat
-
-
-        # 6. 1st fully connected layer for image branch of network - fc3
-        self.layers.fc3 = self.util.fully_connected(fc3_input, fc3_input_shape, 1024, initialiser, name='fc3')
-        self.layers.fc3 = self.util.dropout(self.layers.fc3, self.architecture['layers']['fc3']['keep_prob'])
-
-        # 7. fully connected layer for pose branch - pc1
-        self.layers.pc1 = self.util.fully_connected(pose_data, 1, 16, initialiser, name='pc1')
-
-        # 8. 2nd fully connected layer combining image and pose branches - fc4
-        with tf.variable_scope('fc4'):
-            img_fc = tf.get_variable('fc4W_im', [1024, 1024], initializer=initialiser)
-            pose_fc = tf.get_variable('fc4W_pose', [16, 1024], initializer=initialiser)
-            fc4_bias = tf.get_variable('fc4b', [1024], initializer=initialiser)
-
-        self.layers.fc4 = tf.nn.relu(tf.matmul(self.layers.fc3, img_fc) + tf.matmul(self.layers.pc1, pose_fc) + fc4_bias)
-        self.layers.fc4 = self.util.dropout(self.layers.fc4, self.architecture['layers']['fc4']['keep_prob'])
-
-        # 9. 3rd fully connected layer - fc5
-        self.layers.fc5 = self.util.fully_connected(self.layers.fc4, 1024, self.nn.num_classes, initialiser, name='fc5')
-
-        return self.layers.fc5
+        # network output
+        return alexnet.layers['fc8']
 
 
     def _get_predition_network(self, reuse=True):
@@ -190,7 +81,7 @@ class GQUNt(object):
 
         # setup common filename and logging
         self.model_timestamp = '{:%y-%m-%d-%H:%M:%S}'.format(datetime.now())
-        model_dir_name = self.model_timestamp  # directory for current model
+        model_dir_name = self.model_timestamp                                        # directory for current model
 
         self._model_dir = os.path.join(self.nn.checkpoint_dir, model_dir_name)
         self._log_dir = os.path.join(self._model_dir, 'logs')
@@ -228,10 +119,9 @@ class GQUNt(object):
         self.nn.lr_decay_step = 100000
         batch_num = tf.Variable(0)
         # setup learning rate decay
-        if self.nn.exponential_decay and self.nn.config['optimiser'] == 'momentum':
+        if self.nn.exponential_decay:
             self.nn.learning_rate = tf.train.exponential_decay(self.nn.learning_rate, tf.multiply(batch_num, self.nn.batch_size),
-                                                               self.nn.lr_decay_step, self.nn.lr_decay_rate,
-                                                               name='lr_exponential_decay')
+                                                               self.nn.lr_decay_step, self.nn.lr_decay_rate, name='lr_exponential_decay')
         else:
             # for consistency
             self.nn.learning_rate = tf.constant(self.nn.learning_rate)
@@ -256,21 +146,19 @@ class GQUNt(object):
         # setup weight decay
 
         # number of batches per epoch
-        batches_per_epoch = int(self.nn.num_training_samples / self.nn.batch_size)
+        batches_per_epoch = int(self.nn.num_training_samples/self.nn.batch_size)
 
         # use multiple threads to load data
         coord = tf.train.Coordinator()
 
         if not self.nn.debug:
             # training-data threads
-            qr_train_data = tf.train.QueueRunner(self.nn.train_data_queue,
-                                                 [self.nn.train_data_enqueue_op] * self.nn.num_train_data_enqueue_threads)
+            qr_train_data = tf.train.QueueRunner(self.nn.train_data_queue, [self.nn.train_data_enqueue_op] * self.nn.num_train_data_enqueue_threads)
             # add QueueRunners to default collection
             tf.train.add_queue_runner(qr_train_data)
 
         # validation-data threads
-        qr_val_data = tf.train.QueueRunner(self.nn.val_data_queue,
-                                           [self.nn.val_data_enqueue_op] * self.nn.num_val_data_enqueue_threads)
+        qr_val_data = tf.train.QueueRunner(self.nn.val_data_queue, [self.nn.val_data_enqueue_op] * self.nn.num_val_data_enqueue_threads)
         tf.train.add_queue_runner(qr_val_data)
 
         # init variables
@@ -289,14 +177,11 @@ class GQUNt(object):
         self._graph.finalize()
         threads = tf.train.start_queue_runners(sess=self.sess, coord=coord)
 
-        logging.info('\nWaiting 20 seconds to load queues')
-        time.sleep(20)
+        logging.info('\nWaiting 60 seconds to load queues')
+        time.sleep(0)
 
         # log info about training
         logging.info('------------------------------------------------')
-        logging.info('Network Name: %s' % self.nn.name)
-        logging.info('Image Type: %s' % '32x32 transformed')
-        logging.info('Label Type: %s' % 'clustered uncertainty')
         logging.info('Number of Classes: %s' % str(self.nn.num_classes))
         logging.info('Pose used: %s' % str(bool(int(self.nn.use_pose))))
         logging.info('Number of Training Data-points: %s' % str(self.nn.loader.num_train))
@@ -319,13 +204,11 @@ class GQUNt(object):
 
         # total training steps
         step = 0
-        # print trainable variables
-        logging.info('Variables to be trained: %s' % str([var.name.split(':')[0] for var in tf.trainable_variables()]))
 
         st = time.time()
         with tf.device('/gpu:0'):
             # iterate over training epochs
-            for epoch in xrange(1, self.nn.config['num_epochs'] + 1):
+            for epoch in xrange(1, self.config['num_epochs'] + 1):
                 # iterate over all batches
                 for batch in xrange(1, batches_per_epoch + 1):
 
@@ -342,7 +225,7 @@ class GQUNt(object):
                         _, loss, self.nn.train_accuracy, training_summaries = self.sess.run(run_vars)
 
                         logging.info(self.nn.get_date_time() + ': epoch = %d, batch = %d, accuracy = %.3f, loss = %.3f, time = %.5f'
-                            % (epoch, batch, self.nn.train_accuracy, loss, time.time() - st))
+                                     % (epoch, batch, self.nn.train_accuracy, loss, time.time() - st))
 
                         # log summaries
                         self.nn.summariser.add_summary(training_summaries, step)
@@ -376,8 +259,7 @@ class GQUNt(object):
                         logging.info(self.nn.get_date_time() + ': Saving model as %s' % checkpoint_path)
                         logging.info('------------------------------------------------')
 
-                        latest_checkpoint_path = os.path.join(self.nn.checkpoint_dir, model_dir_name,
-                                                              'model.ckpt')  # save a copy of the latest model
+                        latest_checkpoint_path = os.path.join(self.nn.checkpoint_dir, model_dir_name, 'model.ckpt')        # save a copy of the latest model
                         self.saver.save(self.sess, checkpoint_path)
                         self.saver.save(self.sess, latest_checkpoint_path)
 
@@ -393,7 +275,7 @@ class GQUNt(object):
         with self._graph.as_default():
 
             if self.sess is None:
-                self.nn.open_session()
+                self.sess = self.nn.open_session()
 
             # initialise prediction network
             if not self._pred_network_initialised:
@@ -422,12 +304,14 @@ class GQUNt(object):
 
 
 
-
 if __name__ == '__main__':
 
-    gqunt_config = YamlConfig('/home/noorvir/catkin_ws/src/grasp_ucl/cfg/gqunt.yaml')
+    guant_config = YamlConfig('/home/noorvir/catkin_ws/src/grasp_ucl/cfg/guant_sh.yaml')
 
+
+    ####################
     # 1. Train
-    gqunt = GQUNt(gqunt_config)
-    gqunt.optimise(weights_init='pre_trained')
-    # gqunt.optimise(weights_init='checkpoint')
+    ####################
+    guant = GUANt(guant_config)
+    # guant.optimise(weights_init='pre_trained')
+    guant.optimise(weights_init='checkpoint')
